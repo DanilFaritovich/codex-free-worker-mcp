@@ -1,3 +1,5 @@
+[English](README.md) | [Русский](README.ru.md)
+
 # Codex Free Worker
 
 Local MCP bridge that lets Codex delegate bounded execution loops to OpenCode.
@@ -51,12 +53,15 @@ Codex. Examples include `git status`, `git diff --stat`, or a short successful
 The worker invokes OpenCode non-interactively with `opencode run`, `--auto`, `--dir`,
 `--model`, and `--format json`.
 
-## Native install (recommended)
+## Quick start: native install (recommended)
 
 Native mode is simplest because OpenCode gets the same repository paths and host tooling
 as Codex.
 
 ```bash
+git clone https://github.com/DanilFaritovich/codex-free-worker-mcp.git
+cd codex-free-worker-mcp
+
 python -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
@@ -79,6 +84,33 @@ opencode run \
   "Reply with OK"
 ```
 
+## Provider authentication
+
+The worker does not manage provider credentials itself. OpenCode must already be able to
+use the configured model.
+
+If OpenCode is already authenticated through its own provider configuration, no extra
+credential needs to be stored in the MCP block.
+
+If a provider expects an environment variable, export it in the shell that starts Codex
+and whitelist it for the stdio MCP process. For example, with OpenRouter:
+
+```bash
+export OPENROUTER_API_KEY="..."
+```
+
+```toml
+[mcp_servers.free_worker]
+env_vars = ["OPENROUTER_API_KEY"]
+```
+
+Do not hard-code provider secrets in repository files or example configuration.
+
+A repository-local `.env` file is **not automatically loaded by this native MCP
+server**. `.env.example` documents supported variables; use your shell, secret manager,
+OpenCode provider configuration, or Codex MCP environment forwarding to provide actual
+credentials.
+
 ## Connect to Codex
 
 Add the MCP server to `~/.codex/config.toml` using absolute paths:
@@ -93,12 +125,14 @@ required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 960
 enabled_tools = ["inspect_task", "fix_task"]
+default_tools_approval_mode = "prompt"
 
 [mcp_servers.free_worker.env]
 FREE_WORKER_MODEL = "provider/model"
 FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
 FREE_WORKER_TIMEOUT_SECONDS = "840"
+FREE_WORKER_MAX_RESULT_CHARS = "8000"
 ```
 
 `FREE_WORKER_OPENCODE_BIN` is optional when `opencode` is already available in the MCP
@@ -113,6 +147,20 @@ Restart Codex after changing its config, then verify the server is visible:
 ```bash
 codex mcp list
 ```
+
+For a more convenient approval policy after you have tested the worker, you can approve
+read-only inspection automatically while still prompting before file-changing delegated
+work:
+
+```toml
+[mcp_servers.free_worker.tools.inspect_task]
+approval_mode = "approve"
+
+[mcp_servers.free_worker.tools.fix_task]
+approval_mode = "prompt"
+```
+
+Keeping both tools on `prompt` initially is a reasonable first-run policy.
 
 ## MCP tools
 
@@ -213,6 +261,42 @@ model.
 Project skills do not need to know about OpenCode, a particular provider, or a concrete
 model. Model selection remains a host/runtime concern through `FREE_WORKER_MODEL`.
 
+### Using codex-development-standards
+
+This MCP is host-level infrastructure. Application repositories should not depend on
+this repository directly.
+
+If you use
+[`codex-development-standards`](https://github.com/DanilFaritovich/codex-development-standards),
+its task-development workflow can describe **when** an available optional execution
+worker should be used. Standards are synchronized into each project independently; the
+MCP stays configured once in the user's Codex configuration.
+
+The intended layering is:
+
+```text
+~/.codex/config.toml
+        |
+        +--> free_worker MCP (inspect_task / fix_task)
+
+codex-development-standards
+        |
+        +--> task-development-workflow
+                |
+                +--> optional delegation policy
+
+project repository
+        |
+        +--> synchronized project-local standards
+```
+
+This keeps projects portable:
+
+- when the MCP is available, Codex may delegate suitable bounded execution loops;
+- when it is unavailable and `required = false`, Codex continues directly;
+- project instructions do not need to know the OpenCode provider or model;
+- Git delivery and final acceptance remain with the primary Codex model.
+
 For stronger automatic use across all local repositories, an optional short rule may be
 placed in the user's global `~/.codex/AGENTS.md`:
 
@@ -249,6 +333,39 @@ Run the repository validation command.
 Do not modify files and do not run the command yourself.
 Return only the compact worker result.
 ```
+
+## Troubleshooting
+
+### Codex does not show the server
+
+```bash
+codex mcp list
+```
+
+Confirm that the configured `command` and `cwd` are absolute paths and restart Codex
+after changing `~/.codex/config.toml`.
+
+### OpenCode is not found
+
+```bash
+which opencode
+```
+
+Set `FREE_WORKER_OPENCODE_BIN` to that absolute path, or make sure `opencode` is in the
+environment inherited by the MCP process.
+
+### `cwd is outside FREE_WORKER_ALLOWED_ROOTS`
+
+Add the narrowest parent directory that should contain delegated repositories. The
+worker resolves symlinks before enforcing this boundary.
+
+### Worker returns `failed`
+
+First run OpenCode directly with the configured model. If provider authentication is
+required, verify it outside the MCP before debugging the bridge.
+
+The bridge intentionally does not return raw stderr or large logs to Codex. Use direct
+OpenCode execution for provider/runtime diagnosis when needed.
 
 ## Docker
 

@@ -1,0 +1,12 @@
+services:
+  free-worker:
+    build: .
+    stdin_open: true
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      FREE_WORKER_MODEL: openrouter/cohere/north-mini-code:free
+      FREE_WORKER_TIMEOUT_SECONDS: ${FREE_WORKER_TIMEOUT_SECONDS:-900}
+    volumes:
+      # Preserve the host path used by Codex when possible, e.g.
+      # HOST_WORK_ROOT=/home/daniel/Work
+      - ${HOST_WORK_ROOT}:${HOST_WORK_ROOT}

@@ -11,7 +11,7 @@ from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
     backend: WorkerBackend = Field(
         default=WorkerBackend.OPENCODE,

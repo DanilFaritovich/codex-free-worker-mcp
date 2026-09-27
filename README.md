@@ -47,7 +47,7 @@ Codex. Examples include `git status`, `git diff --stat`, or a short successful
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.14+
 - Codex CLI with stdio MCP support
 - for the OpenCode backend: OpenCode plus a configured provider/model
 - for the Codex backend: a working Codex CLI authentication/session
@@ -66,7 +66,7 @@ as Codex.
 git clone https://github.com/DanilFaritovich/codex-free-worker-mcp.git
 cd codex-free-worker-mcp
 
-python -m venv .venv
+python3.14 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 make check
@@ -472,4 +472,4 @@ make check
 Tests cover Pydantic contracts, allowed-root enforcement, backend selection, server/tool
 delegation boundaries, inspect/fix policy, OpenCode JSONL spoof resistance, Codex command
 isolation/sandbox selection, structured-result validation, timeouts, missing executables,
-and refusal to forward raw logs. CI runs Python 3.11 and 3.12 plus a Docker build.
+and refusal to forward raw logs. CI runs the project checks on Python 3.14 plus a Docker build.

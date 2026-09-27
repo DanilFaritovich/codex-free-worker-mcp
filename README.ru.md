@@ -46,7 +46,7 @@ fallback между backend'ами нет.
 
 ## Требования
 
-- Python 3.11+
+- Python 3.14+
 - Codex CLI с поддержкой stdio MCP
 - для OpenCode backend: OpenCode и настроенный provider/model
 - для Codex backend: рабочая авторизация Codex CLI
@@ -65,7 +65,7 @@ Native-режим проще всего для разработки, потом�
 git clone https://github.com/DanilFaritovich/codex-free-worker-mcp.git
 cd codex-free-worker-mcp
 
-python -m venv .venv
+python3.14 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 make check
@@ -467,4 +467,4 @@ make check
 Тесты покрывают Pydantic contracts, allowed-root enforcement, выбор backend, границы
 server/tool delegation, inspect/fix policy, защиту OpenCode JSONL от spoofing, изоляцию
 и sandbox Codex command, structured-result validation, timeout, отсутствие executable и
-запрет передачи raw logs. CI запускается на Python 3.11 и 3.12 плюс Docker build.
+запрет передачи raw logs. CI запускает проверки проекта на Python 3.14 плюс Docker build.

@@ -16,15 +16,9 @@ concurrency:
 
 jobs:
   checks:
-    name: Python checks (${{ matrix.python-version }})
+    name: Python checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
-    strategy:
-      matrix:
-        python-version:
-          - "3.11"
-          - "3.12"
 
     steps:
       - name: Checkout
@@ -33,7 +27,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           cache: pip
 
       - name: Install dependencies

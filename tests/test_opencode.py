@@ -74,7 +74,7 @@ def test_run_uses_fixed_model_and_directory(tmp_path: Path) -> None:
 
     command = run.call_args.args[0]
     assert command[:2] == ["opencode", "run"]
-    assert "--standalone" in command
+    assert "--auto" in command
     assert str(tmp_path) in command
     assert "openrouter/cohere/north-mini-code:free" in command
     assert result.status is WorkerStatus.PASSED

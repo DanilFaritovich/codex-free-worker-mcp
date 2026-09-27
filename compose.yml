@@ -4,10 +4,13 @@ services:
     stdin_open: true
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      FREE_WORKER_MODEL: ${FREE_WORKER_MODEL:-openrouter/cohere/north-mini-code:free}
+      FREE_WORKER_BACKEND: ${FREE_WORKER_BACKEND:-opencode}
+      FREE_WORKER_OPENCODE_MODEL: ${FREE_WORKER_OPENCODE_MODEL:-openrouter/cohere/north-mini-code:free}
+      FREE_WORKER_CODEX_MODEL: ${FREE_WORKER_CODEX_MODEL:-gpt-6-luna}
+      FREE_WORKER_CODEX_REASONING_EFFORT: ${FREE_WORKER_CODEX_REASONING_EFFORT:-low}
       FREE_WORKER_ALLOWED_ROOTS: ${HOST_WORK_ROOT}
       FREE_WORKER_TIMEOUT_SECONDS: ${FREE_WORKER_TIMEOUT_SECONDS:-840}
       FREE_WORKER_MAX_RESULT_CHARS: ${FREE_WORKER_MAX_RESULT_CHARS:-8000}
     volumes:
-      # Preserve the host path used by Codex, e.g. HOST_WORK_ROOT=/home/daniel/Work.
+      # Preserve the host path used by Codex, e.g. HOST_WORK_ROOT=/home/YOU/Work.
       - ${HOST_WORK_ROOT}:${HOST_WORK_ROOT}

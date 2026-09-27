@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "codex-free-worker"
 version = "0.1.0"
-description = "Local MCP bridge delegating bounded Codex repository tasks to OpenCode."
+description = "Local MCP bridge delegating bounded Codex repository tasks to configurable execution backends."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

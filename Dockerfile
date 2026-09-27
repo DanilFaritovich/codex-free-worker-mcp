@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip python3-venv git make ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global @opencode/cli
+    && npm install --global @opencode/cli @openai/codex
 
 WORKDIR /app
 COPY pyproject.toml README.md ./

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - develop
 
 permissions:
   contents: read
@@ -15,9 +16,15 @@ concurrency:
 
 jobs:
   checks:
-    name: Python checks
+    name: Python checks (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    strategy:
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
 
     steps:
       - name: Checkout
@@ -26,7 +33,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install dependencies

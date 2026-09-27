@@ -6,6 +6,11 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class WorkerBackend(StrEnum):
+    OPENCODE = "opencode"
+    CODEX = "codex"
+
+
 class WorkerMode(StrEnum):
     INSPECT = "inspect"
     FIX = "fix"
@@ -16,6 +21,15 @@ class WorkerStatus(StrEnum):
     FIXED = "fixed"
     FAILED = "failed"
     BLOCKED = "blocked"
+
+
+class ReasoningEffort(StrEnum):
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
 
 
 class WorkerRequest(BaseModel):
@@ -44,3 +58,13 @@ class WorkerResult(BaseModel):
     relevant_locations: list[str] = Field(default_factory=list)
     needs_main_model_decision: bool = False
     decision_required: str | None = None
+
+
+def worker_result_json_schema() -> dict[str, object]:
+    schema = WorkerResult.model_json_schema()
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        schema["required"] = list(properties)
+    schema["additionalProperties"] = False
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    return schema

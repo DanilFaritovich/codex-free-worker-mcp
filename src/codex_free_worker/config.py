@@ -7,10 +7,16 @@ from typing import Annotated
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
+    backend: WorkerBackend = Field(
+        default=WorkerBackend.OPENCODE,
+        validation_alias="FREE_WORKER_BACKEND",
+    )
     opencode_bin: str = Field(
         default="opencode",
         validation_alias="FREE_WORKER_OPENCODE_BIN",
@@ -18,6 +24,18 @@ class Settings(BaseSettings):
     opencode_model: str = Field(
         default="openrouter/cohere/north-mini-code:free",
         validation_alias=AliasChoices("FREE_WORKER_OPENCODE_MODEL", "FREE_WORKER_MODEL"),
+    )
+    codex_bin: str = Field(
+        default="codex",
+        validation_alias="FREE_WORKER_CODEX_BIN",
+    )
+    codex_model: str = Field(
+        default="gpt-6-luna",
+        validation_alias="FREE_WORKER_CODEX_MODEL",
+    )
+    codex_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="FREE_WORKER_CODEX_REASONING_EFFORT",
     )
     timeout_seconds: int = Field(
         default=840,

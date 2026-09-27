@@ -2,14 +2,16 @@
 
 # Codex Free Worker
 
-Local MCP bridge that lets Codex delegate bounded execution loops to OpenCode.
+Local MCP bridge that lets Codex delegate bounded execution loops to a configurable
+execution backend: OpenCode or an isolated child Codex CLI.
 
-The worker keeps raw test/build/CI output out of the primary-model context. OpenCode
-inspects command output itself, can perform bounded execution loops, and returns only a
-compact structured result to Codex.
+The worker keeps raw test/build/CI output out of the primary-model context. The selected
+backend inspects command output itself, can perform bounded execution loops, and returns
+only a compact structured result to the primary Codex agent.
 
-The OpenCode model is a runtime choice configured through `FREE_WORKER_MODEL`; this
-repository does not prescribe a particular model.
+Backend and model selection are runtime choices. Existing installations keep OpenCode as
+the default backend; set `FREE_WORKER_BACKEND=codex` to use Codex instead. There is no
+automatic fallback between backends.
 
 ## Intended split
 
@@ -46,12 +48,14 @@ Codex. Examples include `git status`, `git diff --stat`, or a short successful
 ## Requirements
 
 - Python 3.11+
-- OpenCode available as `opencode`
-- a provider/model configured for OpenCode
 - Codex CLI with stdio MCP support
+- for the OpenCode backend: OpenCode plus a configured provider/model
+- for the Codex backend: a working Codex CLI authentication/session
 
-The worker invokes OpenCode non-interactively with `opencode run`, `--auto`, `--dir`,
-`--model`, and `--format json`.
+The OpenCode backend invokes `opencode run` non-interactively. The Codex backend invokes
+`codex exec` with an explicit model, reasoning effort, sandbox, structured output schema,
+`--ephemeral`, and `--ignore-user-config`. The latter prevents the child worker from
+loading the parent user's Codex MCP configuration, which avoids recursive delegation.
 
 ## Quick start: native install (recommended)
 
@@ -71,7 +75,8 @@ make check
 If the environment was created with a tool that does not seed `pip`, install/seed `pip`
 before `pip install -e '.[dev]'`.
 
-Check OpenCode separately with the same model you intend to configure for the worker:
+For the OpenCode backend, check OpenCode separately with the same model you intend to
+configure for the worker:
 
 ```bash
 export FREE_WORKER_MODEL="provider/model"
@@ -84,10 +89,29 @@ opencode run \
   "Reply with OK"
 ```
 
+## Backend configuration
+
+Select one backend explicitly when you want to move away from the backward-compatible
+OpenCode default:
+
+```text
+FREE_WORKER_BACKEND=opencode
+# or
+FREE_WORKER_BACKEND=codex
+```
+
+The Codex backend defaults to `gpt-6-luna` with `low` reasoning effort. Both are
+configurable. `inspect_task` runs the child Codex with a `read-only` sandbox, while
+`fix_task` uses `workspace-write`. The child session is ephemeral and ignores the
+user's Codex config, but keeps normal Codex authentication.
+
+There is intentionally no automatic backend fallback in this version.
+
 ## Provider authentication
 
-The worker does not manage provider credentials itself. OpenCode must already be able to
-use the configured model.
+The worker does not manage provider credentials itself. For OpenCode, the configured
+provider must already be usable. For the Codex backend, the local Codex CLI must already
+be authenticated.
 
 If OpenCode is already authenticated through its own provider configuration, no extra
 credential needs to be stored in the MCP block.
@@ -128,17 +152,29 @@ enabled_tools = ["inspect_task", "fix_task"]
 default_tools_approval_mode = "prompt"
 
 [mcp_servers.free_worker.env]
-FREE_WORKER_MODEL = "provider/model"
-FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
+FREE_WORKER_BACKEND = "codex"
+
+# Codex backend
+FREE_WORKER_CODEX_BIN = "/absolute/path/to/codex"
+FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
+FREE_WORKER_CODEX_REASONING_EFFORT = "low"
+
+# Shared
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
 FREE_WORKER_TIMEOUT_SECONDS = "840"
 FREE_WORKER_MAX_RESULT_CHARS = "8000"
+
+# For OpenCode instead:
+# FREE_WORKER_BACKEND = "opencode"
+# FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
+# FREE_WORKER_OPENCODE_MODEL = "provider/model"
 ```
 
-`FREE_WORKER_OPENCODE_BIN` is optional when `opencode` is already available in the MCP
-process `PATH`. To find the host path:
+The backend executable path is optional when the corresponding executable is already in
+the MCP process `PATH`:
 
 ```bash
+which codex
 which opencode
 ```
 
@@ -223,10 +259,11 @@ Example:
 }
 ```
 
-OpenCode JSONL stdout is consumed incrementally. Tool/log events are discarded instead
-of being accumulated in memory, and only a compact marked result from a non-synthetic
-OpenCode `text` event is retained. stderr is discarded by the bridge and is never
-returned to Codex.
+OpenCode JSONL stdout is consumed incrementally and only a compact marked result from a
+non-synthetic OpenCode `text` event is retained. The Codex backend instead supplies the
+Pydantic `WorkerResult` JSON Schema through `codex exec --output-schema` and validates
+the final JSON again locally. Raw stderr is discarded by both adapters and is never
+returned to the primary Codex agent.
 
 Possible statuses:
 
@@ -258,8 +295,9 @@ design, public contracts, ambiguous behavior, and final acceptance on the primar
 model.
 ```
 
-Project skills do not need to know about OpenCode, a particular provider, or a concrete
-model. Model selection remains a host/runtime concern through `FREE_WORKER_MODEL`.
+Project skills do not need to know which execution backend, provider, or model is
+selected. Backend/model selection remains a host/runtime concern through the MCP
+environment configuration.
 
 ### Using codex-development-standards
 
@@ -312,7 +350,7 @@ different delegation policy.
 
 ### Suggested integration workflow
 
-1. Install the worker natively and confirm OpenCode works with the configured model.
+1. Install the worker natively and confirm the selected backend works independently.
 2. Configure `free_worker` globally in Codex with `required = false`.
 3. Set `FREE_WORKER_ALLOWED_ROOTS` to the narrowest practical development root.
 4. Restart Codex and verify the server with `codex mcp list`.
@@ -345,14 +383,15 @@ codex mcp list
 Confirm that the configured `command` and `cwd` are absolute paths and restart Codex
 after changing `~/.codex/config.toml`.
 
-### OpenCode is not found
+### Backend executable is not found
 
 ```bash
+which codex
 which opencode
 ```
 
-Set `FREE_WORKER_OPENCODE_BIN` to that absolute path, or make sure `opencode` is in the
-environment inherited by the MCP process.
+Set `FREE_WORKER_CODEX_BIN` or `FREE_WORKER_OPENCODE_BIN` to the corresponding absolute
+path, or make sure the executable is in the environment inherited by the MCP process.
 
 ### `cwd is outside FREE_WORKER_ALLOWED_ROOTS`
 
@@ -361,15 +400,15 @@ worker resolves symlinks before enforcing this boundary.
 
 ### Worker returns `failed`
 
-First run OpenCode directly with the configured model. If provider authentication is
-required, verify it outside the MCP before debugging the bridge.
+First run the selected backend directly. Verify model availability and authentication
+outside the MCP before debugging the bridge.
 
-The bridge intentionally does not return raw stderr or large logs to Codex. Use direct
-OpenCode execution for provider/runtime diagnosis when needed.
+The bridge intentionally does not return raw stderr or large logs to the primary Codex
+agent. Use the backend CLI directly for provider/runtime diagnosis when needed.
 
 ## Docker
 
-The image contains the MCP server and OpenCode:
+The image contains the MCP server, OpenCode, and the Codex CLI:
 
 ```bash
 docker build -t codex-free-worker .
@@ -401,24 +440,27 @@ The mount deliberately preserves the same absolute repository paths because Code
 an absolute `cwd` to the worker tools. The same path must also be covered by
 `FREE_WORKER_ALLOWED_ROOTS`.
 
-Docker mode contains only generic tooling plus OpenCode. Delegated project checks may
-need project runtimes, Docker CLI/socket, `gh`, or other tools already available on the
-host. For that reason **native stdio is the recommended mode for development**.
+Docker mode contains the worker CLIs but delegated project checks may still need project
+runtimes, Docker CLI/socket, `gh`, authentication state, or other tools already available
+on the host. For that reason **native stdio is the recommended mode for development**.
 
 ## Security boundary
 
-The bridge starts OpenCode through a fixed argument list and never uses `shell=True`.
+Both adapters start their backend through fixed argument lists and never use
+`shell=True`. Before execution, the shared service resolves `cwd` and rejects
+repositories outside `FREE_WORKER_ALLOWED_ROOTS`.
 
-OpenCode is started with `--auto` so the delegated worker can execute allowed actions
-without interactive approval. Before execution, the bridge resolves `cwd` and rejects
-repositories outside `FREE_WORKER_ALLOWED_ROOTS`. The worker prompt forbids privilege
-escalation, Git index/ref/history changes, commits, pushes, branch/tag mutation,
-production deployment, secret retrieval, and unrelated edits.
+OpenCode still relies on an instruction-level read-only boundary in `inspect_task`.
+Codex additionally enforces `read-only` for inspect and `workspace-write` for fix through
+its sandbox. The Codex child also uses `--ignore-user-config`, preventing it from loading
+the parent user's MCP configuration.
 
-These restrictions are still not an OS sandbox. `inspect_task` is an instruction-level
-read-only boundary, so keep normal Codex/OpenCode permission controls enabled and do not
-expose secrets or production credentials to an untrusted model/provider. The primary
-Codex agent should review the working-tree diff after any delegated fix.
+The shared worker prompt forbids privilege escalation, Git index/ref/history changes,
+commits, pushes, branch/tag mutation, production deployment, secret retrieval, and
+unrelated edits. These controls are not a complete OS security boundary; keep normal
+backend permission controls enabled and do not expose secrets or production credentials
+to an untrusted provider. The primary Codex agent should review the working-tree diff
+after any delegated fix.
 
 ## Development
 
@@ -427,6 +469,7 @@ make fix
 make check
 ```
 
-Tests cover allowed-root configuration, server/tool delegation boundaries, inspect/fix
-prompt policy, spoof-resistant compact-result extraction, large streamed JSONL, refusal
-to forward raw logs, and OpenCode command construction.
+Tests cover Pydantic contracts, allowed-root enforcement, backend selection, server/tool
+delegation boundaries, inspect/fix policy, OpenCode JSONL spoof resistance, Codex command
+isolation/sandbox selection, structured-result validation, timeouts, missing executables,
+and refusal to forward raw logs. CI runs Python 3.11 and 3.12 plus a Docker build.

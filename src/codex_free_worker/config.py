@@ -38,7 +38,5 @@ class Settings:
             ),
             timeout_seconds=int(os.getenv("FREE_WORKER_TIMEOUT_SECONDS", "840")),
             max_result_chars=int(os.getenv("FREE_WORKER_MAX_RESULT_CHARS", "8000")),
-            allowed_roots=_parse_allowed_roots(
-                os.getenv("FREE_WORKER_ALLOWED_ROOTS", "")
-            ),
+            allowed_roots=_parse_allowed_roots(os.getenv("FREE_WORKER_ALLOWED_ROOTS", "")),
         )

@@ -109,9 +109,7 @@ def test_synthetic_text_event_is_ignored() -> None:
 def test_missing_marker_is_rejected() -> None:
     with pytest.raises(WorkerExecutionError, match="marked compact result"):
         _parse_result(
-            json.dumps(
-                {"type": "text", "part": {"type": "text", "text": "raw only"}}
-            ),
+            json.dumps({"type": "text", "part": {"type": "text", "text": "raw only"}}),
             8_000,
         )
 

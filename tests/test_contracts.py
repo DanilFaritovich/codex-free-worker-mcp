@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -29,15 +30,19 @@ def test_worker_request_rejects_empty_task() -> None:
 
 def test_worker_result_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError, match="unexpected"):
-        WorkerResult(
-            status=WorkerStatus.PASSED,
-            summary="Checks passed.",
-            unexpected=True,
+        WorkerResult.model_validate(
+            {
+                "status": WorkerStatus.PASSED,
+                "summary": "Checks passed.",
+                "unexpected": True,
+            }
         )
 
 
 def test_worker_result_schema_requires_complete_contract() -> None:
     schema = worker_result_json_schema()
+    properties = cast(dict[str, object], schema["properties"])
+    required = cast(list[str], schema["required"])
 
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == set(schema["properties"])
+    assert set(required) == set(properties)

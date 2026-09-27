@@ -98,50 +98,56 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
 
 
 def test_codex_rejects_invalid_structured_result(tmp_path: Path) -> None:
-    with patch(
-        "codex_free_worker.adapters.codex.subprocess.Popen",
-        return_value=_FakeProcess("not-json"),
+    with (
+        patch(
+            "codex_free_worker.adapters.codex.subprocess.Popen",
+            return_value=_FakeProcess("not-json"),
+        ),
+        pytest.raises(WorkerExecutionError, match="invalid structured result"),
     ):
-        with pytest.raises(WorkerExecutionError, match="invalid structured result"):
-            _adapter().execute(
-                WorkerRequest(
-                    task="Run make check.",
-                    cwd=tmp_path,
-                    mode=WorkerMode.INSPECT,
-                )
+        _adapter().execute(
+            WorkerRequest(
+                task="Run make check.",
+                cwd=tmp_path,
+                mode=WorkerMode.INSPECT,
             )
+        )
 
 
 def test_codex_nonzero_exit_does_not_forward_raw_logs(tmp_path: Path) -> None:
-    with patch(
-        "codex_free_worker.adapters.codex.subprocess.Popen",
-        return_value=_FakeProcess("SECRET RAW OUTPUT", returncode=2),
+    with (
+        patch(
+            "codex_free_worker.adapters.codex.subprocess.Popen",
+            return_value=_FakeProcess("SECRET RAW OUTPUT", returncode=2),
+        ),
+        pytest.raises(WorkerExecutionError) as exc_info,
     ):
-        with pytest.raises(WorkerExecutionError) as exc_info:
-            _adapter().execute(
-                WorkerRequest(
-                    task="Run make check.",
-                    cwd=tmp_path,
-                    mode=WorkerMode.INSPECT,
-                )
+        _adapter().execute(
+            WorkerRequest(
+                task="Run make check.",
+                cwd=tmp_path,
+                mode=WorkerMode.INSPECT,
             )
+        )
 
     assert "SECRET RAW OUTPUT" not in str(exc_info.value)
 
 
 def test_codex_missing_binary_is_reported(tmp_path: Path) -> None:
-    with patch(
-        "codex_free_worker.adapters.codex.subprocess.Popen",
-        side_effect=FileNotFoundError,
+    with (
+        patch(
+            "codex_free_worker.adapters.codex.subprocess.Popen",
+            side_effect=FileNotFoundError,
+        ),
+        pytest.raises(WorkerExecutionError, match="Codex executable not found"),
     ):
-        with pytest.raises(WorkerExecutionError, match="Codex executable not found"):
-            _adapter().execute(
-                WorkerRequest(
-                    task="Run make check.",
-                    cwd=tmp_path,
-                    mode=WorkerMode.INSPECT,
-                )
+        _adapter().execute(
+            WorkerRequest(
+                task="Run make check.",
+                cwd=tmp_path,
+                mode=WorkerMode.INSPECT,
             )
+        )
 
 
 def test_codex_timeout_is_reported(tmp_path: Path) -> None:
@@ -157,17 +163,19 @@ def test_codex_timeout_is_reported(tmp_path: Path) -> None:
             return "", None
 
     process = TimeoutProcess()
-    with patch(
-        "codex_free_worker.adapters.codex.subprocess.Popen",
-        return_value=process,
+    with (
+        patch(
+            "codex_free_worker.adapters.codex.subprocess.Popen",
+            return_value=process,
+        ),
+        pytest.raises(WorkerExecutionError, match="exceeded 30s timeout"),
     ):
-        with pytest.raises(WorkerExecutionError, match="exceeded 30s timeout"):
-            _adapter().execute(
-                WorkerRequest(
-                    task="Run make check.",
-                    cwd=tmp_path,
-                    mode=WorkerMode.INSPECT,
-                )
+        _adapter().execute(
+            WorkerRequest(
+                task="Run make check.",
+                cwd=tmp_path,
+                mode=WorkerMode.INSPECT,
             )
+        )
 
     assert process.killed is True

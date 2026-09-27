@@ -138,7 +138,10 @@ def test_adapter_uses_model_directory_and_streaming_pipe(tmp_path: Path) -> None
         max_result_chars=8_000,
     )
 
-    with patch("codex_free_worker.adapters.opencode.subprocess.Popen", return_value=process) as popen:
+    with patch(
+        "codex_free_worker.adapters.opencode.subprocess.Popen",
+        return_value=process,
+    ) as popen:
         result = adapter.execute(
             WorkerRequest(task="Run make check.", cwd=tmp_path, mode=WorkerMode.INSPECT)
         )

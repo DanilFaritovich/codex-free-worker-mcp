@@ -5,9 +5,20 @@ import pytest
 from codex_free_worker.config import Settings
 
 
-def test_default_model_is_north_mini_code(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_opencode_model_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FREE_WORKER_OPENCODE_MODEL", raising=False)
     monkeypatch.delenv("FREE_WORKER_MODEL", raising=False)
-    assert Settings.from_env().model == "openrouter/cohere/north-mini-code:free"
+
+    assert Settings.from_env().opencode_model == "openrouter/cohere/north-mini-code:free"
+
+
+def test_legacy_model_environment_variable_is_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FREE_WORKER_OPENCODE_MODEL", raising=False)
+    monkeypatch.setenv("FREE_WORKER_MODEL", "provider/legacy-model")
+
+    assert Settings.from_env().opencode_model == "provider/legacy-model"
 
 
 def test_allowed_roots_are_parsed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

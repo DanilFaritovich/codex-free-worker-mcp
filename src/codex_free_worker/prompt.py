@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from codex_free_worker.models import WorkerMode
+from codex_free_worker.contracts import WorkerMode
 
 _RESULT_START = "FREE_WORKER_RESULT_BEGIN"
 _RESULT_END = "FREE_WORKER_RESULT_END"
@@ -19,7 +19,7 @@ def build_worker_prompt(task: str, mode: WorkerMode) -> str:
     return f"""
 You are an execution worker controlled by a senior coding agent.
 
-Work inside the repository passed to OpenCode via --dir.
+Work inside the repository provided by the execution backend.
 Read and follow the repository's AGENTS.md and applicable project-local instructions
 before acting. Prefer the repository's public Makefile commands when they exist.
 
@@ -47,6 +47,13 @@ Raw logs stay with you. Return only a compact final report.
 
 TASK:
 {task.strip()}
+""".strip()
+
+
+def build_opencode_prompt(task: str, mode: WorkerMode) -> str:
+    prompt = build_worker_prompt(task, mode)
+    return f"""
+{prompt}
 
 At the very end of your response, output exactly one JSON object between these markers:
 

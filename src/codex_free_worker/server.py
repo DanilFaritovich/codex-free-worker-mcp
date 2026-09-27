@@ -7,7 +7,7 @@ from typing import Literal
 from mcp.server import MCPServer
 
 from codex_free_worker.config import Settings
-from codex_free_worker.models import WorkerMode, WorkerResult
+from codex_free_worker.models import WorkerMode, WorkerResult, WorkerStatus
 from codex_free_worker.opencode import run_opencode_task
 
 server = MCPServer("codex-free-worker")
@@ -19,19 +19,27 @@ def delegate_task(
     cwd: str,
     mode: Literal["inspect", "fix"] = "inspect",
 ) -> WorkerResult:
-    """Delegate a bounded repository execution task to the free OpenCode worker.
+    """Delegate a bounded repository task to OpenCode."""
 
-    Prefer this for tests, lint/typecheck/build/CI/GitHub inspection loops and bounded
-    mechanical fixes. Raw command logs remain inside the worker process. Keep architecture,
-    security, migration strategy, concurrency, deployment design, ambiguous behavior and
-    final acceptance on the primary model.
-    """
-    return run_opencode_task(
-        task=task,
-        cwd=Path(cwd),
-        mode=WorkerMode(mode),
-        settings=Settings.from_env(),
-    )
+    try:
+        settings = Settings.from_env()
+
+        return run_opencode_task(
+            task=task,
+            cwd=Path(cwd),
+            mode=WorkerMode(mode),
+            settings=settings,
+        )
+    except Exception as exc:
+        return WorkerResult(
+            status=WorkerStatus.FAILED,
+            summary=f"{type(exc).__name__}: {exc}",
+            changed_files=[],
+            checks={"worker": "failed"},
+            relevant_locations=[],
+            needs_main_model_decision=False,
+            decision_required=None,
+        )
 
 
 def main() -> None:

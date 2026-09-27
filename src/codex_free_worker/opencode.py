@@ -101,7 +101,7 @@ def run_opencode_task(
     command = [
         settings.opencode_bin,
         "run",
-        "--standalone",
+        "--auto",
         "--dir",
         str(cwd),
         "--model",

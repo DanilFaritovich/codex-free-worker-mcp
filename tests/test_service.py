@@ -21,9 +21,7 @@ def test_service_resolves_and_forwards_allowed_cwd(tmp_path: Path) -> None:
     executor = FakeExecutor()
     service = WorkerService(executor=executor, allowed_roots=(tmp_path,))
 
-    result = service.execute(
-        WorkerRequest(task="Inspect.", cwd=repo, mode=WorkerMode.INSPECT)
-    )
+    result = service.execute(WorkerRequest(task="Inspect.", cwd=repo, mode=WorkerMode.INSPECT))
 
     assert result.status is WorkerStatus.PASSED
     assert executor.requests[0].cwd == repo.resolve()
@@ -38,9 +36,7 @@ def test_service_rejects_cwd_outside_allowed_roots(tmp_path: Path) -> None:
     service = WorkerService(executor=executor, allowed_roots=(allowed,))
 
     with pytest.raises(ValueError, match="outside FREE_WORKER_ALLOWED_ROOTS"):
-        service.execute(
-            WorkerRequest(task="Inspect.", cwd=outside, mode=WorkerMode.INSPECT)
-        )
+        service.execute(WorkerRequest(task="Inspect.", cwd=outside, mode=WorkerMode.INSPECT))
 
     assert executor.requests == []
 
@@ -50,8 +46,6 @@ def test_service_rejects_missing_allowed_roots(tmp_path: Path) -> None:
     service = WorkerService(executor=executor, allowed_roots=())
 
     with pytest.raises(ValueError, match="FREE_WORKER_ALLOWED_ROOTS"):
-        service.execute(
-            WorkerRequest(task="Inspect.", cwd=tmp_path, mode=WorkerMode.INSPECT)
-        )
+        service.execute(WorkerRequest(task="Inspect.", cwd=tmp_path, mode=WorkerMode.INSPECT))
 
     assert executor.requests == []

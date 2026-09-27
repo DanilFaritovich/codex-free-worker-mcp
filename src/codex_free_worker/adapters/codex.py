@@ -33,11 +33,7 @@ class CodexAdapter:
         self._max_result_chars = max_result_chars
 
     def execute(self, request: WorkerRequest) -> WorkerResult:
-        sandbox = (
-            "read-only"
-            if request.mode is WorkerMode.INSPECT
-            else "workspace-write"
-        )
+        sandbox = "read-only" if request.mode is WorkerMode.INSPECT else "workspace-write"
         prompt = build_worker_prompt(request.task, request.mode)
 
         with tempfile.TemporaryDirectory(prefix="codex-worker-") as temp_dir:

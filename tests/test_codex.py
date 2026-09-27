@@ -79,9 +79,7 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
         return process
 
     with patch("codex_free_worker.adapters.codex.subprocess.Popen", side_effect=popen):
-        result = _adapter().execute(
-            WorkerRequest(task="Run make check.", cwd=tmp_path, mode=mode)
-        )
+        result = _adapter().execute(WorkerRequest(task="Run make check.", cwd=tmp_path, mode=mode))
 
     command = captured_commands[0]
     schema = captured_schemas[0]

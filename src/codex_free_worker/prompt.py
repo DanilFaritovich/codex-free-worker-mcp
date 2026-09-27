@@ -37,7 +37,8 @@ Your role:
 Safety:
 - never use sudo, su, permission-bypass chmod/chown, destructive git reset, force push,
   merge, production deployment, or secret retrieval;
-- do not commit or push unless the task explicitly says so;
+- never stage files, commit, push, merge, rebase, create/delete/switch branches or tags,
+  or otherwise modify Git index, refs, or history;
 - do not modify unrelated files;
 - do not paste raw command logs into the final response;
 - do not include private reasoning traces.

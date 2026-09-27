@@ -88,12 +88,17 @@ Add the MCP server to `~/.codex/config.toml` using absolute paths:
 command = "/home/YOU/Work/codex-free-worker-mcp/.venv/bin/codex-free-worker"
 args = ["stdio"]
 cwd = "/home/YOU/Work/codex-free-worker-mcp"
+enabled = true
+required = false
 startup_timeout_sec = 10
-tool_timeout_sec = 900
+tool_timeout_sec = 960
+enabled_tools = ["inspect_task", "fix_task"]
 
 [mcp_servers.free_worker.env]
 FREE_WORKER_MODEL = "provider/model"
 FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
+FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
+FREE_WORKER_TIMEOUT_SECONDS = "840"
 ```
 
 `FREE_WORKER_OPENCODE_BIN` is optional when `opencode` is already available in the MCP
@@ -109,23 +114,32 @@ Restart Codex after changing its config, then verify the server is visible:
 codex mcp list
 ```
 
-## MCP tool
+## MCP tools
 
-The server exposes one tool:
+The server exposes two tools with separate intent:
 
 ```text
-delegate_task(
+inspect_task(
     task: string,
-    cwd: absolute repository path,
-    mode: "inspect" | "fix" = "inspect"
+    cwd: absolute repository path
+)
+
+fix_task(
+    task: string,
+    cwd: absolute repository path
 )
 ```
 
-`inspect` asks the worker not to modify repository files.
+`inspect_task` is for high-output validation, diagnosis, CI/build inspection, and broad
+routine exploration. It instructs the worker not to modify repository files.
 
-`fix` permits bounded mechanical changes within the delegated task. Architecture,
-security, persistence, deployment policy, concurrency, public contracts, and other
-ambiguous design decisions should be returned to the primary model instead.
+`fix_task` permits only bounded mechanical changes where intended behavior is already
+clear. Architecture, security, persistence, migration policy, concurrency, deployment
+design, public contracts, ambiguous behavior, and final acceptance stay with the
+primary Codex model.
+
+Both tools require `cwd` to resolve inside one of the absolute directories listed in
+`FREE_WORKER_ALLOWED_ROOTS`. Symlink resolution is applied before that boundary check.
 
 ### Inspect example
 
@@ -161,8 +175,10 @@ Example:
 }
 ```
 
-Raw stdout/stderr from OpenCode is captured inside the MCP process and is not returned
-to Codex by default.
+OpenCode JSONL stdout is consumed incrementally. Tool/log events are discarded instead
+of being accumulated in memory, and only a compact marked result from a non-synthetic
+OpenCode `text` event is retained. stderr is discarded by the bridge and is never
+returned to Codex.
 
 Possible statuses:
 
@@ -171,53 +187,64 @@ Possible statuses:
 - `failed` — the worker or delegated validation failed;
 - `blocked` — continuing requires a decision from the primary model.
 
-## Integrating with project standards or skills
+## Integrating with Codex
 
-This repository is designed to be referenced by Codex project standards, `AGENTS.md`,
-or a reusable skill. The integration rule should decide **when delegation is worth it**;
-it should not hard-code a model choice.
+The MCP server publishes shared delegation guidance through MCP server instructions.
+When the server is connected, Codex receives that guidance together with the two tool
+descriptions. When the server is unavailable and `required = false`, Codex continues
+without the worker.
 
-A suitable rule is:
+The server instructions intentionally keep the policy generic:
 
 ```text
-Prefer free_worker.delegate_task when a bounded execution loop is expected to produce
-large logs, repeated run/diagnose/fix/rerun cycles, broad repository exploration, or
-mechanical work that would otherwise consume substantial primary-model context.
+Use the worker for bounded high-output execution loops, repeated
+run/diagnose/fix/rerun cycles, broad routine exploration, or work that would consume
+substantial primary-model context.
 
-Run tiny deterministic commands with small output directly when delegation overhead
-would be larger than the output itself.
+Run tiny deterministic commands directly.
 
-Delegate the whole execution loop rather than one shell command at a time.
+Delegate whole execution loops rather than individual commands.
 
-Keep architecture, security, transaction/concurrency decisions, migration strategy,
-deployment design, ambiguous behavior, public contracts, and final acceptance on the
-primary model.
-
-Raw logs stay with the worker. Ask for additional diagnostics only when the compact
-result is insufficient.
+Keep architecture, security, persistence/migration strategy, concurrency, deployment
+design, public contracts, ambiguous behavior, and final acceptance on the primary
+model.
 ```
+
+Project skills do not need to know about OpenCode, a particular provider, or a concrete
+model. Model selection remains a host/runtime concern through `FREE_WORKER_MODEL`.
+
+For stronger automatic use across all local repositories, an optional short rule may be
+placed in the user's global `~/.codex/AGENTS.md`:
+
+```text
+When free_worker MCP tools are available, prefer them for bounded high-output execution
+loops or repeated mechanical run/diagnose/fix/rerun work. If unavailable, continue
+directly without treating their absence as an error. Keep design decisions and final
+review on the primary model.
+```
+
+Do not copy that rule into every project unless the project intentionally needs a
+different delegation policy.
 
 ### Suggested integration workflow
 
-When integrating this MCP into another repository or standards repository:
-
-1. Confirm `free_worker` is configured globally in Codex and visible through
-   `codex mcp list`.
-2. Add a project/organization rule or reusable skill describing the delegation boundary
-   above.
-3. Do not copy a concrete OpenCode model into project instructions; model selection is
-   runtime configuration through `FREE_WORKER_MODEL`.
-4. Prefer project-owned validation entry points such as `make check`, `make verify`, or
-   equivalent commands when they exist.
-5. Let the worker inspect raw output and iterate internally; return only the compact
-   `WorkerResult` to the primary model.
-6. Escalate to the primary model when `needs_main_model_decision=true` or when the
-   compact result is insufficient for a safe decision.
+1. Install the worker natively and confirm OpenCode works with the configured model.
+2. Configure `free_worker` globally in Codex with `required = false`.
+3. Set `FREE_WORKER_ALLOWED_ROOTS` to the narrowest practical development root.
+4. Restart Codex and verify the server with `codex mcp list`.
+5. Prefer project-owned validation entry points such as `make check`, `make verify`,
+   or equivalent commands inside delegated tasks.
+6. Let the worker inspect raw output and iterate internally; the primary model reviews
+   the compact `WorkerResult` and any resulting diff.
+7. Escalate when `needs_main_model_decision=true` or the compact result is insufficient
+   for a safe decision.
+8. Keep commit planning, staging, commits, push, PR delivery, and final acceptance on
+   the primary Codex model.
 
 A useful first integration test is:
 
 ```text
-Use free_worker in inspect mode.
+Use free_worker.inspect_task.
 Run the repository validation command.
 Do not modify files and do not run the command yourself.
 Return only the compact worker result.
@@ -239,15 +266,23 @@ command = "docker"
 args = [
   "run", "--rm", "-i",
   "-e", "FREE_WORKER_MODEL",
+  "-e", "FREE_WORKER_ALLOWED_ROOTS",
+  "-e", "FREE_WORKER_TIMEOUT_SECONDS",
   "-e", "OPENROUTER_API_KEY",
   "-v", "/home/YOU/Work:/home/YOU/Work",
   "codex-free-worker"
 ]
-tool_timeout_sec = 900
+required = false
+tool_timeout_sec = 960
+
+[mcp_servers.free_worker.env]
+FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
+FREE_WORKER_TIMEOUT_SECONDS = "840"
 ```
 
 The mount deliberately preserves the same absolute repository paths because Codex passes
-an absolute `cwd` to `delegate_task`.
+an absolute `cwd` to the worker tools. The same path must also be covered by
+`FREE_WORKER_ALLOWED_ROOTS`.
 
 Docker mode contains only generic tooling plus OpenCode. Delegated project checks may
 need project runtimes, Docker CLI/socket, `gh`, or other tools already available on the
@@ -258,14 +293,15 @@ host. For that reason **native stdio is the recommended mode for development**.
 The bridge starts OpenCode through a fixed argument list and never uses `shell=True`.
 
 OpenCode is started with `--auto` so the delegated worker can execute allowed actions
-without interactive approval. The worker prompt forbids privilege escalation,
-destructive Git operations, merges, production deployment, secret retrieval, and
-unrelated edits.
+without interactive approval. Before execution, the bridge resolves `cwd` and rejects
+repositories outside `FREE_WORKER_ALLOWED_ROOTS`. The worker prompt forbids privilege
+escalation, Git index/ref/history changes, commits, pushes, branch/tag mutation,
+production deployment, secret retrieval, and unrelated edits.
 
-These restrictions are prompt-level policy, not an OS sandbox. `inspect` is likewise an
-instruction to the worker rather than a filesystem-level read-only guarantee. Keep normal
-Codex/OpenCode permission controls enabled and do not expose secrets or production
-credentials to an untrusted model/provider.
+These restrictions are still not an OS sandbox. `inspect_task` is an instruction-level
+read-only boundary, so keep normal Codex/OpenCode permission controls enabled and do not
+expose secrets or production credentials to an untrusted model/provider. The primary
+Codex agent should review the working-tree diff after any delegated fix.
 
 ## Development
 
@@ -274,5 +310,6 @@ make fix
 make check
 ```
 
-Tests cover configuration, inspect/fix prompt boundaries, compact-result extraction from
-noisy JSONL, refusal to forward raw logs, and OpenCode command construction.
+Tests cover allowed-root configuration, server/tool delegation boundaries, inspect/fix
+prompt policy, spoof-resistant compact-result extraction, large streamed JSONL, refusal
+to forward raw logs, and OpenCode command construction.

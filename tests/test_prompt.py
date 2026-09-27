@@ -13,4 +13,12 @@ def test_inspect_prompt_is_read_only() -> None:
 def test_fix_prompt_allows_only_bounded_edits() -> None:
     prompt = build_worker_prompt("Fix formatter failures.", WorkerMode.FIX)
     assert "mechanical and bounded" in prompt
-    assert "do not commit or push" in prompt.lower()
+    assert "never stage files, commit, push" in prompt.lower()
+
+
+def test_worker_never_owns_git_delivery() -> None:
+    prompt = build_worker_prompt("Commit and push the fix.", WorkerMode.FIX)
+    lowered = prompt.lower()
+
+    assert "never stage files, commit, push" in lowered
+    assert "modify git index, refs, or history" in lowered

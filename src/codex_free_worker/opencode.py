@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TextIO
 
 from codex_free_worker.config import Settings
 from codex_free_worker.models import WorkerMode, WorkerResult
@@ -15,74 +17,113 @@ class WorkerExecutionError(RuntimeError):
     pass
 
 
-def _walk_strings(value: Any) -> Iterable[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _walk_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _walk_strings(item)
+def _resolve_cwd(cwd: Path, allowed_roots: tuple[Path, ...]) -> Path:
+    if not cwd.is_absolute():
+        raise ValueError("cwd must be an absolute path")
+
+    try:
+        resolved_cwd = cwd.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(f"cwd is not a directory: {cwd}") from exc
+
+    if not resolved_cwd.is_dir():
+        raise ValueError(f"cwd is not a directory: {cwd}")
+
+    if not allowed_roots:
+        raise ValueError(
+            "FREE_WORKER_ALLOWED_ROOTS must contain at least one allowed repository root"
+        )
+
+    for root in allowed_roots:
+        resolved_root = root.resolve()
+        if resolved_cwd == resolved_root or resolved_cwd.is_relative_to(resolved_root):
+            return resolved_cwd
+
+    raise ValueError(f"cwd is outside FREE_WORKER_ALLOWED_ROOTS: {resolved_cwd}")
 
 
-def _extract_marked_payload(stdout: str) -> str:
+def _extract_marked_payload(text: str) -> str | None:
     start_marker, end_marker = result_markers()
-    structured_candidates: list[str] = []
+    start = text.rfind(start_marker)
+    if start < 0:
+        return None
 
-    # OpenCode --format json emits JSONL events.
-    # Prefer strings extracted from already-decoded events so JSON escaping
-    # from the transport layer never leaks into the result payload.
-    for line in stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    start += len(start_marker)
+    end = text.find(end_marker, start)
+    if end < 0:
+        return None
+
+    return text[start:end].strip()
+
+
+def _extract_text_event(line: str) -> str | None:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(event, dict) or event.get("type") != "text":
+        return None
+
+    part = event.get("part")
+    if not isinstance(part, dict) or part.get("type") != "text":
+        return None
+    if part.get("synthetic") is True:
+        return None
+
+    text = part.get("text")
+    return text if isinstance(text, str) else None
+
+
+@dataclass(slots=True)
+class _ResultCollector:
+    latest_payload: str | None = None
+
+    def feed_line(self, line: str) -> None:
+        text = _extract_text_event(line)
+        if text is None:
+            return
+
+        payload = _extract_marked_payload(text)
+        if payload is not None:
+            self.latest_payload = payload
+
+    def build_result(self, max_result_chars: int) -> WorkerResult:
+        payload = self.latest_payload
+        if payload is None:
+            raise WorkerExecutionError("OpenCode finished without a marked compact result.")
+        if len(payload) > max_result_chars:
+            raise WorkerExecutionError(
+                f"Worker result exceeded {max_result_chars} characters; raw logs were not returned."
+            )
 
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            structured_candidates.append(line)
-            continue
+            return WorkerResult.model_validate_json(payload)
+        except Exception as exc:
+            raise WorkerExecutionError("Worker returned an invalid compact JSON result.") from exc
 
-        structured_candidates.extend(_walk_strings(event))
 
-    def extract(text: str) -> str | None:
-        start = text.rfind(start_marker)
-        if start < 0:
-            return None
-
-        start += len(start_marker)
-        end = text.find(end_marker, start)
-        if end < 0:
-            return None
-
-        return text[start:end].strip()
-
-    # Prefer the latest decoded OpenCode event.
-    for text in reversed(structured_candidates):
-        payload = extract(text)
-        if payload is not None:
-            return payload
-
-    # Compatibility fallback for non-JSON/plain-text OpenCode output.
-    payload = extract(stdout)
-    if payload is not None:
-        return payload
-
-    raise WorkerExecutionError("OpenCode finished without a marked compact result.")
+def _parse_result_lines(lines: Iterable[str], max_result_chars: int) -> WorkerResult:
+    collector = _ResultCollector()
+    for line in lines:
+        collector.feed_line(line)
+    return collector.build_result(max_result_chars)
 
 
 def _parse_result(stdout: str, max_result_chars: int) -> WorkerResult:
-    payload = _extract_marked_payload(stdout)
-    if len(payload) > max_result_chars:
-        raise WorkerExecutionError(
-            f"Worker result exceeded {max_result_chars} characters; raw logs were not returned."
-        )
+    return _parse_result_lines(stdout.splitlines(), max_result_chars)
 
+
+def _consume_stdout(
+    stream: TextIO,
+    collector: _ResultCollector,
+    errors: list[BaseException],
+) -> None:
     try:
-        return WorkerResult.model_validate_json(payload)
-    except Exception as exc:
-        raise WorkerExecutionError("Worker returned an invalid compact JSON result.") from exc
+        for line in stream:
+            collector.feed_line(line)
+    except BaseException as exc:  # pragma: no cover - defensive stream failure
+        errors.append(exc)
 
 
 def run_opencode_task(
@@ -92,10 +133,7 @@ def run_opencode_task(
     mode: WorkerMode,
     settings: Settings,
 ) -> WorkerResult:
-    if not cwd.is_absolute():
-        raise ValueError("cwd must be an absolute path")
-    if not cwd.is_dir():
-        raise ValueError(f"cwd is not a directory: {cwd}")
+    resolved_cwd = _resolve_cwd(cwd, settings.allowed_roots)
 
     prompt = build_worker_prompt(task, mode)
     command = [
@@ -103,7 +141,7 @@ def run_opencode_task(
         "run",
         "--auto",
         "--dir",
-        str(cwd),
+        str(resolved_cwd),
         "--model",
         settings.model,
         "--format",
@@ -112,30 +150,55 @@ def run_opencode_task(
     ]
 
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
-            cwd=cwd,
+            cwd=resolved_cwd,
             stdin=subprocess.DEVNULL,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
-            timeout=settings.timeout_seconds,
-            check=False,
+            bufsize=1,
         )
     except FileNotFoundError as exc:
         raise WorkerExecutionError(
             f"OpenCode executable not found: {settings.opencode_bin}"
         ) from exc
+
+    if process.stdout is None:  # pragma: no cover - PIPE guarantees stdout
+        process.kill()
+        raise WorkerExecutionError("OpenCode stdout pipe was not created.")
+
+    collector = _ResultCollector()
+    reader_errors: list[BaseException] = []
+    reader = threading.Thread(
+        target=_consume_stdout,
+        args=(process.stdout, collector, reader_errors),
+        daemon=True,
+    )
+    reader.start()
+
+    try:
+        returncode = process.wait(timeout=settings.timeout_seconds)
     except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.wait()
+        reader.join(timeout=5)
         raise WorkerExecutionError(
             f"OpenCode worker exceeded {settings.timeout_seconds}s timeout."
         ) from exc
 
-    # Deliberately never forward completed.stdout/stderr to the MCP caller.
+    reader.join(timeout=5)
+    if reader.is_alive():
+        process.kill()
+        raise WorkerExecutionError("OpenCode stdout reader did not terminate.")
+    if reader_errors:
+        raise WorkerExecutionError("Failed while reading OpenCode JSONL output.")
+
     try:
-        return _parse_result(completed.stdout, settings.max_result_chars)
+        return collector.build_result(settings.max_result_chars)
     except WorkerExecutionError:
-        if completed.returncode != 0:
+        if returncode != 0:
             raise WorkerExecutionError(
-                f"OpenCode exited with code {completed.returncode} without a valid compact result."
+                f"OpenCode exited with code {returncode} without a valid compact result."
             ) from None
         raise

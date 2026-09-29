@@ -47,6 +47,24 @@ Safety:
 - do not paste raw command logs into the final response;
 - do not include private reasoning traces.
 
+Permission handoff:
+- If a necessary file read/write, command, or network operation is denied by the sandbox,
+  filesystem permissions, or an approval boundary, stop that operation. Do not bypass it
+  with sudo, chmod/chown, symlinks, alternate privileged tools, or an unrestricted sandbox.
+- Return status=blocked, needs_main_model_decision=true, and a concise decision_required
+  describing the smallest intended action and why it is necessary.
+- Include blocked_operation with kind (file-read, file-write, command, network, or other),
+  target (path or non-secret destination), and reason (the actual denial). This is
+  descriptive information, not a command for the parent to execute blindly.
+- Do not include credentials, private data, raw logs, or shell snippets carrying secrets
+  in the handoff. Report any completed changes/checks accurately; never claim a blocked
+  task succeeded.
+- For a non-permission architectural or ambiguous decision, report blocked with
+  blocked_operation=null and explain the decision_required instead.
+- Never ask the child process to grant itself permissions. The main agent decides whether
+  to request user approval using its own available mechanisms and may perform a narrowly
+  scoped approved action. If no such mechanism is available, it must stop.
+
 Raw logs stay with you. Return only a compact final report.
 
 TASK:
@@ -69,7 +87,8 @@ At the very end of your response, output exactly one JSON object between these m
   "checks": {{"command or stage": "passed|failed|skipped"}},
   "relevant_locations": ["path:line"],
   "needs_main_model_decision": false,
-  "decision_required": null
+  "decision_required": null,
+  "blocked_operation": null
 }}
 {_RESULT_END}
 
@@ -79,6 +98,8 @@ Rules for the JSON report:
 - For a failure, include only the meaningful failing stage/root cause and useful locations.
 - If a main-model decision is required, use status=blocked,
   needs_main_model_decision=true, and describe only the exact decision needed.
+- For a denied operation, also populate blocked_operation with kind, target and reason;
+  otherwise use null. Never return an executable approval or privileged command.
 - If you repaired a mechanical issue successfully, use status=fixed.
 """.strip()
 

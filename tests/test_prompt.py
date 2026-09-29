@@ -31,3 +31,18 @@ def test_opencode_prompt_adds_transport_markers() -> None:
 
     assert "FREE_WORKER_RESULT_BEGIN" in prompt
     assert "FREE_WORKER_RESULT_END" in prompt
+
+
+def test_worker_prompt_defers_permission_denials_to_main_agent() -> None:
+    prompt = build_worker_prompt("Copy files.", WorkerMode.FIX)
+    assert "status=blocked" in prompt
+    assert "blocked_operation" in prompt
+    assert "symlinks" in prompt
+    assert "main agent" in prompt
+    assert "never claim a blocked" in prompt
+
+
+def test_opencode_prompt_includes_backward_compatible_handoff_field() -> None:
+    prompt = build_opencode_prompt("Inspect files.", WorkerMode.INSPECT)
+    assert '"blocked_operation": null' in prompt
+    assert "denied operation" in prompt

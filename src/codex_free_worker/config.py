@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -12,6 +12,23 @@ from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO",
+        validation_alias="LOG_LEVEL",
+    )
+    log_format: Literal["json", "text"] = Field(
+        default="json",
+        validation_alias="LOG_FORMAT",
+    )
+    service_name: str = Field(
+        default="codex-free-worker",
+        validation_alias="SERVICE_NAME",
+    )
+    environment: str = Field(
+        default="development",
+        validation_alias="ENVIRONMENT",
+    )
 
     backend: WorkerBackend = Field(
         default=WorkerBackend.OPENCODE,

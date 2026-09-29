@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from mcp.server import MCPServer
 
 from codex_free_worker.bootstrap import build_worker_service
 from codex_free_worker.config import Settings
 from codex_free_worker.contracts import WorkerMode, WorkerRequest, WorkerResult, WorkerStatus
+from codex_free_worker.errors import WorkerExecutionError
+from codex_free_worker.logging_config import bind_request_id, configure_logging, safe_stack
+
+logger = logging.getLogger(__name__)
 
 SERVER_INSTRUCTIONS = """
 Use this worker for bounded repository execution loops that would otherwise produce
@@ -23,21 +30,63 @@ server = MCPServer("codex-free-worker", instructions=SERVER_INSTRUCTIONS)
 
 
 def _run_task(task: str, cwd: str, mode: WorkerMode) -> WorkerResult:
-    try:
-        settings = Settings.from_env()
-        service = build_worker_service(settings)
-        request = WorkerRequest(task=task, cwd=Path(cwd), mode=mode)
-        return service.execute(request)
-    except Exception as exc:
-        return WorkerResult(
-            status=WorkerStatus.FAILED,
-            summary=f"{type(exc).__name__}: {exc}",
-            changed_files=[],
-            checks={"worker": "failed"},
-            relevant_locations=[],
-            needs_main_model_decision=False,
-            decision_required=None,
-        )
+    request_id = uuid4().hex
+    with bind_request_id(request_id):
+        started = perf_counter()
+        backend: str | None = None
+        try:
+            settings = Settings.from_env()
+            backend = settings.backend.value
+            logger.info(
+                "Worker task started.",
+                extra={"event": "worker_started", "backend": backend, "mode": mode.value},
+            )
+            service = build_worker_service(settings)
+            request = WorkerRequest(task=task, cwd=Path(cwd), mode=mode)
+            result = service.execute(request)
+            logger.log(
+                logging.WARNING
+                if result.status in (WorkerStatus.FAILED, WorkerStatus.BLOCKED)
+                else logging.INFO,
+                "Worker task completed.",
+                extra={
+                    "event": "worker_completed",
+                    "backend": backend,
+                    "mode": mode.value,
+                    "status": result.status.value,
+                    "duration_ms": int((perf_counter() - started) * 1000),
+                    "changed_files_count": len(result.changed_files),
+                    "check_count": len(result.checks),
+                },
+            )
+            return result
+        except Exception as exc:
+            fields: dict[str, object] = {
+                "event": "worker_failed",
+                "mode": mode.value,
+                "status": WorkerStatus.FAILED.value,
+                "duration_ms": int((perf_counter() - started) * 1000),
+                "error_type": type(exc).__name__,
+            }
+            if backend is not None:
+                fields["backend"] = backend
+            if not isinstance(exc, (WorkerExecutionError, ValueError)):
+                fields["stack"] = safe_stack(exc)
+            logger.error("Worker task failed.", extra=fields)
+            summary = (
+                f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, (WorkerExecutionError, ValueError))
+                else f"Unexpected worker error (request_id={request_id})."
+            )
+            return WorkerResult(
+                status=WorkerStatus.FAILED,
+                summary=summary,
+                changed_files=[],
+                checks={"worker": "failed"},
+                relevant_locations=[],
+                needs_main_model_decision=False,
+                decision_required=None,
+            )
 
 
 @server.tool()
@@ -72,6 +121,14 @@ def main() -> None:
     transport = sys.argv[1] if len(sys.argv) > 1 else "stdio"
     if transport != "stdio":
         raise SystemExit("This MVP supports stdio transport only.")
+    settings = Settings.from_env()
+    configure_logging(
+        level=settings.log_level,
+        log_format=settings.log_format,
+        service=settings.service_name,
+        environment=settings.environment,
+    )
+    logger.info("MCP server starting.", extra={"event": "server_starting"})
     server.run(transport="stdio")
 
 

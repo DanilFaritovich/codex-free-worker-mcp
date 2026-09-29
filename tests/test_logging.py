@@ -124,9 +124,7 @@ def test_human_format_also_uses_stderr(
         level="INFO", log_format="text", service="worker", environment="local"
     )
 
-    logging.getLogger("codex_free_worker.test").info(
-        "Startup.", extra={"event": "server_starting"}
-    )
+    logging.getLogger("codex_free_worker.test").info("Startup.", extra={"event": "server_starting"})
     output = stderr.getvalue()
     assert 'event="server_starting"' in output
     assert 'service="worker"' in output

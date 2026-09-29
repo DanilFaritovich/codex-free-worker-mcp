@@ -61,6 +61,7 @@ def test_relative_allowed_root_is_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(ValueError, match="absolute paths"):
         Settings.from_env()
 
+
 def test_logging_defaults_and_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("LOG_LEVEL", "LOG_FORMAT", "SERVICE_NAME", "ENVIRONMENT"):
         monkeypatch.delenv(name, raising=False)

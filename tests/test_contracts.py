@@ -100,9 +100,7 @@ def test_permission_handoff_schema_is_closed_and_required_in_codex_envelope() ->
     definitions = cast(dict[str, object], schema["$defs"])
     blocked_schema = cast(dict[str, object], definitions["BlockedOperation"])
     assert blocked_schema["additionalProperties"] is False
-    assert set(cast(list[str], blocked_schema["required"])) == {
-        "kind", "target", "reason"
-    }
+    assert set(cast(list[str], blocked_schema["required"])) == {"kind", "target", "reason"}
 
 
 def test_worker_result_accepts_permission_handoff() -> None:

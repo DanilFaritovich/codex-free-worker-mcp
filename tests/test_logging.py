@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from collections.abc import Iterator
 from datetime import datetime
 from io import StringIO
@@ -33,7 +34,7 @@ def isolated_package_logger() -> Iterator[logging.Logger]:
 
 
 def _configure_json(stream: StringIO, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(logging_config.sys, "stderr", stream)
+    monkeypatch.setattr(sys, "stderr", stream)
     logging_config.configure_logging(
         level="INFO",
         log_format="json",
@@ -119,7 +120,7 @@ def test_human_format_also_uses_stderr(
     isolated_package_logger: logging.Logger,
 ) -> None:
     stderr = StringIO()
-    monkeypatch.setattr(logging_config.sys, "stderr", stderr)
+    monkeypatch.setattr(sys, "stderr", stderr)
     logging_config.configure_logging(
         level="INFO", log_format="text", service="worker", environment="local"
     )

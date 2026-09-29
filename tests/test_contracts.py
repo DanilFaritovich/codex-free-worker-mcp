@@ -48,6 +48,7 @@ def test_worker_result_schema_requires_complete_contract() -> None:
     assert schema["additionalProperties"] is False
     assert set(required) == set(properties)
 
+
 def test_codex_schema_uses_closed_object_for_each_check() -> None:
     schema = worker_result_json_schema()
     properties = cast(dict[str, object], schema["properties"])

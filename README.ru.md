@@ -458,6 +458,61 @@ unrelated edits. Эти меры не являются полной OS security 
 permission controls backend включёнными. После delegated fix основная модель Codex
 должна проверить working-tree diff.
 
+## Структурированное логирование (подготовка к Loki / Grafana)
+
+Для stdio MCP **stdout используется только протоколом**. Собственные логи сервиса
+записываются в **stderr**: одна JSON-запись на строку. Это не нарушает обмен MCP.
+Дополнительные библиотеки и файлы логов внутри контейнера не требуются. Для локальной
+разработки можно переключить формат на текстовый.
+
+Переменные окружения задаются в окружении **MCP-сервера** (или добавляются в
+существующий блок `[mcp_servers.free_worker.env]` в `~/.codex/config.toml`):
+
+```bash
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+SERVICE_NAME=codex-free-worker
+ENVIRONMENT=production
+```
+
+Для `LOG_LEVEL` допустимы `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+Для `LOG_FORMAT` — `json` (по умолчанию) или `text`. По умолчанию
+`ENVIRONMENT=development`; в `compose.yml` используется `production`. Эти четыре
+переменные передаются контейнерному MCP-процессу.
+
+Пример события приложения (значения условные):
+
+```json
+{"timestamp":"2026-09-29T12:00:00.000Z","level":"INFO","logger":"codex_free_worker.server","message":"Worker task completed.","service":"codex-free-worker","environment":"production","request_id":"f0e2c1","event":"worker_completed","backend":"codex","mode":"fix","status":"fixed","duration_ms":1380,"changed_files_count":1,"check_count":2}
+```
+
+Стабильные значения `event`: `server_starting`, `worker_started`,
+`worker_completed`, `worker_failed`, `backend_timeout`,
+`backend_process_failed`, `backend_executable_missing`. Для каждого вызова worker
+генерируется `request_id`, по которому можно сопоставить события. Длительность
+записывается в миллисекундах. При сбоях сохраняются безопасные поля `error_type`,
+`exit_code`, `timeout_seconds`. Стек непредвиденного исключения содержит только
+имена файлов, номера строк и имена функций.
+
+**Не записываем** в логи тексты задач/промптов, сырой stdout/stderr дочерней модели,
+секреты provider'а, полные пути к репозиториям, исходные сообщения исключений и
+конфиденциальные результаты. Stderr дочерних процессов по-прежнему отбрасывается:
+логируется только безопасная метаинформация. `request_id` остаётся в теле JSON,
+а **не** становится Loki label.
+
+Для будущей интеграции собирайте stderr контейнера/runtime через Loki-compatible
+collector (например, Grafana Alloy), отправляйте JSON Lines в Loki и анализируйте
+в Grafana. Низкокардинальные labels (`service`, `environment`) назначаются на стороне
+collector; request IDs и другие высококардинальные данные сохраняются в JSON. Пример
+LogQL **после настройки label `service` в collector**:
+
+```logql
+{service="codex-free-worker"} | json | event="worker_failed"
+```
+
+В этом репозитории **пока нет** развертывания Loki, Grafana, collector или dashboard.
+Метрики расхода токенов дочерних Codex-сессий также пока не собираются.
+
 ## Разработка
 
 ```bash

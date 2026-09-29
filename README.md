@@ -463,6 +463,61 @@ backend permission controls enabled and do not expose secrets or production cred
 to an untrusted provider. The primary Codex agent should review the working-tree diff
 after any delegated fix.
 
+## Structured logging (Loki / Grafana ready)
+
+The MCP transport uses **stdout exclusively for protocol messages**. The service writes
+one JSON object per line to **stderr** (also in Docker), so application logging cannot
+corrupt the stdio protocol. No extra logging dependency or in-container log files are
+required. Local human-readable logs are optional.
+
+Configure these environment variables in the environment **inherited by the MCP server**
+(or add them to the existing `[mcp_servers.free_worker.env]` block in
+`~/.codex/config.toml`):
+
+```bash
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+SERVICE_NAME=codex-free-worker
+ENVIRONMENT=production
+```
+
+`LOG_LEVEL` accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`.
+`LOG_FORMAT` accepts `json` (default) or `text`. By default `ENVIRONMENT` is
+`development`; `compose.yml` defaults to `production`. The Docker Compose service
+forwards these four variables to the MCP process.
+
+Example of an emitted application event (illustrative values):
+
+```json
+{"timestamp":"2026-09-29T12:00:00.000Z","level":"INFO","logger":"codex_free_worker.server","message":"Worker task completed.","service":"codex-free-worker","environment":"production","request_id":"f0e2c1","event":"worker_completed","backend":"codex","mode":"fix","status":"fixed","duration_ms":1380,"changed_files_count":1,"check_count":2}
+```
+
+Stable `event` values include `server_starting`, `worker_started`,
+`worker_completed`, `worker_failed`, `backend_timeout`,
+`backend_process_failed` and `backend_executable_missing`. A generated
+`request_id` correlates records for one worker tool call. Duration is in milliseconds.
+Failures report safe structured metadata such as `error_type`, `exit_code`, and
+`timeout_seconds`. Unexpected exception stack frames contain only filenames, line
+numbers and function names.
+
+**Never** log task/prompt text, model stdout/stderr, provider credentials, complete
+repository paths, raw exception messages or private result payloads. The subprocess
+stderr streams remain discarded; only safe error metadata is logged. `request_id`
+is placed in the JSON body, **not** promoted to a Loki label.
+
+For a later Grafana integration, collect the container/runtime stderr stream using a
+Loki-compatible collector (for example, Grafana Alloy), forward JSON Lines to Loki, and
+query them in Grafana. Configure low-cardinality labels such as `service` and
+`environment` in the collector; keep request IDs and other high-cardinality values in
+the JSON document. Example LogQL **after the collector defines the `service` label**:
+
+```logql
+{service="codex-free-worker"} | json | event="worker_failed"
+```
+
+This repository does **not** deploy Loki, Grafana, a collector or a dashboard. It also
+does not yet capture usage/token metrics from child Codex sessions.
+
 ## Development
 
 ```bash

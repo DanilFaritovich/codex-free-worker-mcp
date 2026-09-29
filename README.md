@@ -117,6 +117,21 @@ that write caches (for example Ruff or pytest) may fail unless configured accord
 
 There is intentionally no automatic backend fallback in this version.
 
+### Automatic project virtual environment
+
+When launching a child Codex or OpenCode process, the MCP bridge checks the target
+repository `cwd` for `.venv/bin` and `backend/.venv/bin`. Existing directories
+are prepended to the **child process's** `PATH` (root `.venv` first) and the first
+available environment is set as `VIRTUAL_ENV`. This lets `make check` find project
+tools such as Ruff, mypy, and pytest without an extra `PATH=...` prefix.
+The MCP server's own environment is not modified; the configured Codex/OpenCode binary
+is resolved against the *original* PATH, before project-local paths are prepended.
+
+This discovers **existing** virtual environments; it does not install dependencies,
+activate shell scripts, or fix failing project tests. If no matching environment is
+present, the child inherits the original environment. In monorepos with custom virtual
+environment layouts, configure PATH in your project Makefile or task explicitly.
+
 ## Provider authentication
 
 The worker does not manage provider credentials itself. For OpenCode, the configured

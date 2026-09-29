@@ -60,11 +60,40 @@ class WorkerResult(BaseModel):
     decision_required: str | None = None
 
 
+class CodexCheck(BaseModel):
+    """A named check with a fixed shape suitable for strict structured output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    result: str
+
+
+class CodexWorkerResult(BaseModel):
+    """Codex-facing envelope; the public MCP contract keeps dict-shaped checks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: WorkerStatus
+    summary: str = Field(min_length=1)
+    changed_files: list[str]
+    checks: list[CodexCheck]
+    relevant_locations: list[str]
+    needs_main_model_decision: bool
+    decision_required: str | None
+
+    def to_worker_result(self) -> WorkerResult:
+        return WorkerResult(
+            status=self.status,
+            summary=self.summary,
+            changed_files=self.changed_files,
+            checks={check.name: check.result for check in self.checks},
+            relevant_locations=self.relevant_locations,
+            needs_main_model_decision=self.needs_main_model_decision,
+            decision_required=self.decision_required,
+        )
+
+
 def worker_result_json_schema() -> dict[str, object]:
-    schema = WorkerResult.model_json_schema()
-    properties = schema.get("properties")
-    if isinstance(properties, dict):
-        schema["required"] = list(properties)
-    schema["additionalProperties"] = False
-    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    return schema
+    """Use fixed-shape check items: strict output disallows arbitrary map keys."""
+    return CodexWorkerResult.model_json_schema()

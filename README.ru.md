@@ -259,8 +259,9 @@ Stop if an architectural or behavioral decision is required.
 
 JSONL stdout OpenCode обрабатывается потоково, а bridge сохраняет только компактный
 marked result из несинтетического OpenCode `text` event. Codex backend вместо markers
-передаёт Pydantic JSON Schema контракта `WorkerResult` через
-`codex exec --output-schema` и затем повторно валидирует JSON локально. Raw stderr обоих
+передаёт строгую Pydantic JSON Schema через `codex exec --output-schema`, в которой
+checks представлены списком объектов с фиксированными полями. Затем преобразует
+результат в публичный `WorkerResult` с прежним словарём checks и валидирует его. Raw stderr обоих
 адаптеров не передаётся основному Codex.
 
 Статусы:

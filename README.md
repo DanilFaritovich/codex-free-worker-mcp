@@ -261,8 +261,9 @@ Example:
 
 OpenCode JSONL stdout is consumed incrementally and only a compact marked result from a
 non-synthetic OpenCode `text` event is retained. The Codex backend instead supplies the
-Pydantic `WorkerResult` JSON Schema through `codex exec --output-schema` and validates
-the final JSON again locally. Raw stderr is discarded by both adapters and is never
+strict Pydantic JSON Schema through `codex exec --output-schema`, with checks represented
+as fixed-shape list items. It converts the result back to the public `WorkerResult`
+dictionary-shaped checks and validates it locally. Raw stderr is discarded by both adapters and is never
 returned to the primary Codex agent.
 
 Possible statuses:

@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from codex_free_worker.contracts import (
+    CodexWorkerResult,
     ReasoningEffort,
     WorkerMode,
     WorkerRequest,
@@ -103,6 +104,6 @@ class CodexAdapter:
             )
 
         try:
-            return WorkerResult.model_validate_json(payload)
+            return CodexWorkerResult.model_validate_json(payload).to_worker_result()
         except Exception as exc:
             raise WorkerExecutionError("Codex returned an invalid structured result.") from exc

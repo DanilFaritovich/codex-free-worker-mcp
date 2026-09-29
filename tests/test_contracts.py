@@ -56,9 +56,12 @@ def test_codex_schema_uses_closed_object_for_each_check() -> None:
     assert checks_schema["type"] == "array"
 
     item_schema = cast(dict[str, object], checks_schema["items"])
-    item_properties = cast(dict[str, object], item_schema["properties"])
-    item_required = cast(list[str], item_schema["required"])
-    assert item_schema["additionalProperties"] is False
+    assert item_schema["$ref"] == "#/$defs/CodexCheck"
+    definitions = cast(dict[str, object], schema["$defs"])
+    item_definition = cast(dict[str, object], definitions["CodexCheck"])
+    item_properties = cast(dict[str, object], item_definition["properties"])
+    item_required = cast(list[str], item_definition["required"])
+    assert item_definition["additionalProperties"] is False
     assert set(item_properties) == {"name", "result"}
     assert set(item_required) == set(item_properties)
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from datetime import datetime
@@ -181,3 +183,35 @@ def test_unexpected_exception_logs_safe_stack_but_not_exception_text(
     assert error_record["stack"]
     assert "SUPER_SECRET_" not in stderr.getvalue()
     assert str(tmp_path) not in stderr.getvalue()
+
+
+def test_stdio_module_entrypoint_emits_json_to_stderr() -> None:
+    """Exercise the real python -m entrypoint, not only an imported module."""
+    process = subprocess.run(
+        [sys.executable, "-m", "codex_free_worker.server", "stdio"],
+        input="",
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+        env={
+            **os.environ,
+            "LOG_FORMAT": "json",
+            "LOG_LEVEL": "INFO",
+            "ENVIRONMENT": "test",
+        },
+    )
+
+    assert process.returncode == 0
+    records = [
+        json.loads(line)
+        for line in process.stderr.splitlines()
+        if line.startswith("{")
+    ]
+    assert any(
+        record.get("event") == "server_starting"
+        and record.get("logger") == "codex_free_worker.server"
+        and record.get("environment") == "test"
+        for record in records
+    )
+    assert "MCP server starting." not in process.stdout

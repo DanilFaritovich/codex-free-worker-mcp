@@ -10,11 +10,11 @@ import json
 import logging
 import sys
 import traceback
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
-from collections.abc import Iterator
 
 _request_id: ContextVar[str | None] = ContextVar("worker_request_id", default=None)
 _HANDLER_NAME = "codex-free-worker-stderr"
@@ -97,9 +97,7 @@ class TextFormatter(_SafeFormatter):
         )
 
 
-def configure_logging(
-    *, level: str, log_format: str, service: str, environment: str
-) -> None:
+def configure_logging(*, level: str, log_format: str, service: str, environment: str) -> None:
     """Configure package logs exactly once per call, always on stderr.
 
     Stdout is reserved for MCP protocol messages.

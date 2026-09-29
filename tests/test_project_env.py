@@ -43,9 +43,7 @@ def test_root_venv_is_preferred_and_backend_is_secondary(
     assert os.environ["VIRTUAL_ENV"] == "/parent/venv"
 
 
-def test_backend_only_venv_is_used(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_backend_only_venv_is_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     backend = tmp_path / "backend" / ".venv"
     (backend / "bin").mkdir(parents=True)
     monkeypatch.setenv("PATH", "/parent/bin")

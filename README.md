@@ -227,6 +227,48 @@ keys rather than adding a second table. Restart the parent Codex CLI to apply ch
 Because inspection now defaults to `workspace-write`, keep both tools on `prompt` for
 approval unless you deliberately accept the additional filesystem-write risk.
 
+### Permission handoff to the main Codex agent
+
+A child worker runs non-interactively with its configured sandbox and
+`approval_policy="never"`. **There is no automatic or interactive permission
+relay from a nested `codex exec` to the parent Codex session.** A protected
+operation must not trigger an unrestricted retry.
+
+If a required operation is denied by the sandbox, filesystem permissions, or an
+approval boundary, the worker must stop and return `status=blocked`,
+`needs_main_model_decision=true`, a concise `decision_required`, and a
+`blocked_operation` describing the denied operation:
+
+```json
+{
+  "status": "blocked",
+  "summary": "Writing the selected skill files was denied.",
+  "changed_files": [],
+  "checks": {"copy": "blocked"},
+  "relevant_locations": [],
+  "needs_main_model_decision": true,
+  "decision_required": "Decide whether to authorize the bounded copy into .agents/skills.",
+  "blocked_operation": {
+    "kind": "file-write",
+    "target": ".agents/skills",
+    "reason": "Read-only file system"
+  }
+}
+```
+
+`kind` may be `file-read`, `file-write`, `command`, `network`, or
+`other`. The operation is **diagnostic data, not an executable command or an
+approval**. The primary agent must independently evaluate it, request user
+approval through its own supported mechanism when necessary, perform only an
+explicitly approved narrow action, and revalidate/continue. It must not run
+arbitrary commands taken from the worker result or silently elevate the worker.
+If approval cannot be obtained, leave the task blocked. For a non-permission
+design decision, `blocked_operation` stays `null`.
+
+Both backends use this result contract; OpenCode still uses JSON markers and
+Codex still uses strict structured output. No new backend permissions are
+granted by this feature.
+
 ## MCP tools
 
 The server exposes two tools with separate intent:
@@ -285,7 +327,8 @@ Example:
   "checks": {"mypy": "failed"},
   "relevant_locations": ["backend/app/repository.py:47"],
   "needs_main_model_decision": false,
-  "decision_required": null
+  "decision_required": null,
+  "blocked_operation": null
 }
 ```
 

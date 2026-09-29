@@ -5,6 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from codex_free_worker.contracts import (
+    BlockedOperation,
+    BlockedOperationKind,
     CodexWorkerResult,
     WorkerMode,
     WorkerRequest,
@@ -79,6 +81,7 @@ def test_codex_result_converts_to_public_worker_contract() -> None:
             "relevant_locations": [],
             "needs_main_model_decision": False,
             "decision_required": None,
+            "blocked_operation": None,
         }
     )
 
@@ -86,3 +89,80 @@ def test_codex_result_converts_to_public_worker_contract() -> None:
     assert result.status is WorkerStatus.FIXED
     assert result.checks == {"make fix": "passed", "make check": "passed"}
     assert result.changed_files == ["src/example.py"]
+
+
+def test_permission_handoff_schema_is_closed_and_required_in_codex_envelope() -> None:
+    schema = worker_result_json_schema()
+    properties = cast(dict[str, object], schema["properties"])
+    assert "blocked_operation" in properties
+    assert "blocked_operation" in cast(list[str], schema["required"])
+
+    definitions = cast(dict[str, object], schema["$defs"])
+    blocked_schema = cast(dict[str, object], definitions["BlockedOperation"])
+    assert blocked_schema["additionalProperties"] is False
+    assert set(cast(list[str], blocked_schema["required"])) == {"kind", "target", "reason"}
+
+
+def test_worker_result_accepts_permission_handoff() -> None:
+    result = WorkerResult(
+        status=WorkerStatus.BLOCKED,
+        summary="Protected path was not writable.",
+        needs_main_model_decision=True,
+        decision_required="Ask whether to copy the selected files.",
+        blocked_operation=BlockedOperation(
+            kind=BlockedOperationKind.FILE_WRITE,
+            target=".agents/skills",
+            reason="Read-only file system",
+        ),
+    )
+    assert result.blocked_operation is not None
+    assert result.blocked_operation.kind is BlockedOperationKind.FILE_WRITE
+
+
+@pytest.mark.parametrize(
+    ("status", "needs_decision", "decision"),
+    [
+        (WorkerStatus.PASSED, True, "Ask."),
+        (WorkerStatus.BLOCKED, False, "Ask."),
+        (WorkerStatus.BLOCKED, True, None),
+    ],
+)
+def test_worker_result_rejects_inconsistent_permission_handoff(
+    status: WorkerStatus,
+    needs_decision: bool,
+    decision: str | None,
+) -> None:
+    with pytest.raises(ValidationError, match="blocked_operation"):
+        WorkerResult(
+            status=status,
+            summary="Cannot write.",
+            needs_main_model_decision=needs_decision,
+            decision_required=decision,
+            blocked_operation=BlockedOperation(
+                kind=BlockedOperationKind.FILE_WRITE,
+                target=".agents/skills",
+                reason="Denied",
+            ),
+        )
+
+
+def test_codex_schema_does_not_execute_blocked_operation() -> None:
+    codex_result = CodexWorkerResult.model_validate(
+        {
+            "status": "blocked",
+            "summary": "Denied.",
+            "changed_files": [],
+            "checks": [],
+            "relevant_locations": [],
+            "needs_main_model_decision": True,
+            "decision_required": "Decide whether the write is necessary.",
+            "blocked_operation": {
+                "kind": "file-write",
+                "target": ".agents/skills",
+                "reason": "Denied",
+            },
+        }
+    )
+    result = codex_result.to_worker_result()
+    assert result.blocked_operation is not None
+    assert result.blocked_operation.target == ".agents/skills"

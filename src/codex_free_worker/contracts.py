@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class WorkerBackend(StrEnum):
@@ -26,6 +26,24 @@ class WorkerStatus(StrEnum):
     FIXED = "fixed"
     FAILED = "failed"
     BLOCKED = "blocked"
+
+
+class BlockedOperationKind(StrEnum):
+    FILE_READ = "file-read"
+    FILE_WRITE = "file-write"
+    COMMAND = "command"
+    NETWORK = "network"
+    OTHER = "other"
+
+
+class BlockedOperation(BaseModel):
+    """Information for the parent agent to evaluate; never executable authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: BlockedOperationKind
+    target: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
 
 
 class ReasoningEffort(StrEnum):
@@ -63,6 +81,18 @@ class WorkerResult(BaseModel):
     relevant_locations: list[str] = Field(default_factory=list)
     needs_main_model_decision: bool = False
     decision_required: str | None = None
+    blocked_operation: BlockedOperation | None = None
+
+    @model_validator(mode="after")
+    def validate_permission_handoff(self) -> WorkerResult:
+        if self.blocked_operation is not None:
+            if self.status is not WorkerStatus.BLOCKED:
+                raise ValueError("blocked_operation requires status=blocked")
+            if not self.needs_main_model_decision or not (
+                self.decision_required and self.decision_required.strip()
+            ):
+                raise ValueError("blocked_operation requires a parent decision")
+        return self
 
 
 class CodexCheck(BaseModel):
@@ -86,6 +116,7 @@ class CodexWorkerResult(BaseModel):
     relevant_locations: list[str]
     needs_main_model_decision: bool
     decision_required: str | None
+    blocked_operation: BlockedOperation | None
 
     def to_worker_result(self) -> WorkerResult:
         return WorkerResult(
@@ -96,6 +127,7 @@ class CodexWorkerResult(BaseModel):
             relevant_locations=self.relevant_locations,
             needs_main_model_decision=self.needs_main_model_decision,
             decision_required=self.decision_required,
+            blocked_operation=self.blocked_operation,
         )
 
 

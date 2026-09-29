@@ -1,6 +1,8 @@
 """Backward-compatible exports for worker contracts."""
 
 from codex_free_worker.contracts import (
+    BlockedOperation,
+    BlockedOperationKind,
     ReasoningEffort,
     WorkerBackend,
     WorkerMode,
@@ -10,6 +12,8 @@ from codex_free_worker.contracts import (
 )
 
 __all__ = [
+    "BlockedOperation",
+    "BlockedOperationKind",
     "ReasoningEffort",
     "WorkerBackend",
     "WorkerMode",

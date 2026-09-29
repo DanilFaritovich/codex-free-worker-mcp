@@ -29,6 +29,7 @@ def _payload() -> str:
             "relevant_locations": [],
             "needs_main_model_decision": False,
             "decision_required": None,
+            "blocked_operation": None,
         }
     )
 
@@ -237,3 +238,44 @@ def test_codex_subprocess_inherits_target_project_tools(
     assert child_env["VIRTUAL_ENV"] == str(tmp_path / ".venv")
     assert os.environ["PATH"] == "/parent/bin"
     assert os.environ["VIRTUAL_ENV"] == "/parent/venv"
+
+
+def test_codex_permission_denial_is_returned_as_structured_handoff(
+    tmp_path: Path,
+) -> None:
+    payload = json.dumps(
+        {
+            "status": "blocked",
+            "summary": "Workspace sandbox denied the file write.",
+            "changed_files": [],
+            "checks": [{"name": "sync", "result": "blocked"}],
+            "relevant_locations": [],
+            "needs_main_model_decision": True,
+            "decision_required": "Decide whether the selected skill files may be copied.",
+            "blocked_operation": {
+                "kind": "file-write",
+                "target": ".agents/skills",
+                "reason": "Read-only file system",
+            },
+        }
+    )
+    captured: list[list[str]] = []
+
+    def popen(command: list[str], **kwargs: object) -> _FakeProcess:
+        captured.append(command)
+        return _FakeProcess(payload)
+
+    with patch("codex_free_worker.adapters.codex.subprocess.Popen", side_effect=popen):
+        result = _adapter().execute(
+            WorkerRequest(task="Copy selected skills.", cwd=tmp_path, mode=WorkerMode.FIX)
+        )
+
+    command = captured[0]
+    assert result.status is WorkerStatus.BLOCKED
+    assert result.needs_main_model_decision is True
+    assert result.blocked_operation is not None
+    assert result.blocked_operation.target == ".agents/skills"
+    assert result.blocked_operation.reason == "Read-only file system"
+    assert 'approval_policy="never"' in command
+    assert command[command.index("--sandbox") + 1] == "workspace-write"
+    assert "--dangerously-bypass-approvals-and-sandbox" not in command

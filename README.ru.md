@@ -228,6 +228,48 @@ Codex CLI. Поскольку `inspect_task` теперь по умолчани�
 `workspace-write`, лучше сохранить подтверждение обоих MCP-инструментов
 в режиме `prompt`, если вы сознательно не принимаете риск записи файлов.
 
+### Передача запроса на разрешение основному Codex
+
+Дочерний Codex запускается неинтерактивно с настроенной песочницей и
+`approval_policy="never"`. **Автоматического или интерактивного канала
+передачи запросов на разрешения от дочернего `codex exec` родительскому
+Codex здесь нет.** При отказе нельзя автоматически перезапускать
+операцию без ограничений.
+
+Когда нужное действие заблокировано песочницей, файловыми правами или
+механизмом одобрения, worker должен остановиться и вернуть
+`status=blocked`, `needs_main_model_decision=true`, краткое
+`decision_required` и объект `blocked_operation`:
+
+```json
+{
+  "status": "blocked",
+  "summary": "Запись выбранных скиллов запрещена.",
+  "changed_files": [],
+  "checks": {"copy": "blocked"},
+  "relevant_locations": [],
+  "needs_main_model_decision": true,
+  "decision_required": "Определить, можно ли разрешить копирование в .agents/skills.",
+  "blocked_operation": {
+    "kind": "file-write",
+    "target": ".agents/skills",
+    "reason": "Read-only file system"
+  }
+}
+```
+
+Допустимые `kind`: `file-read`, `file-write`, `command`, `network`,
+`other`. Это **диагностические данные, а не готовая команда или разрешение**.
+Основной Codex самостоятельно оценивает необходимость и безопасность операции,
+при необходимости запрашивает разрешение доступным ему способом, выполняет
+только отдельно одобренное узкое действие и повторно проверяет результат.
+Запрещено безусловно выполнять команды из ответа worker или повышать его
+права. Если разрешение не получено, задача остаётся заблокированной.
+Если решение не связано с правами, `blocked_operation=null`.
+
+Контракт общий для обоих backend: OpenCode по-прежнему использует JSON-маркеры,
+а Codex — строгий структурированный ответ. Новых прав backend не получает.
+
 ## MCP tools
 
 Сервер публикует два инструмента с разным назначением:
@@ -286,7 +328,8 @@ Stop if an architectural or behavioral decision is required.
   "checks": {"mypy": "failed"},
   "relevant_locations": ["backend/app/repository.py:47"],
   "needs_main_model_decision": false,
-  "decision_required": null
+  "decision_required": null,
+  "blocked_operation": null
 }
 ```
 

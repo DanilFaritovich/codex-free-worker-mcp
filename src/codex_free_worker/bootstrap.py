@@ -14,6 +14,8 @@ def build_worker_executor(settings: Settings) -> WorkerExecutor:
             codex_bin=settings.codex_bin,
             model=settings.codex_model,
             reasoning_effort=settings.codex_reasoning_effort,
+            inspect_sandbox=settings.inspect_sandbox,
+            fix_sandbox=settings.fix_sandbox,
             timeout_seconds=settings.timeout_seconds,
             max_result_chars=settings.max_result_chars,
         )

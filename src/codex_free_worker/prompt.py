@@ -8,7 +8,11 @@ _RESULT_END = "FREE_WORKER_RESULT_END"
 
 def build_worker_prompt(task: str, mode: WorkerMode) -> str:
     permission_text = (
-        "You are in INSPECT mode. Do not modify repository files."
+        (
+            "You are in INSPECT mode. Do not intentionally edit source code, tests, "
+            "documentation, configuration, or tracked files. Validation commands may "
+            "create disposable caches and temporary files when the sandbox allows it."
+        )
         if mode is WorkerMode.INSPECT
         else (
             "You are in FIX mode. You may edit repository files only when the requested "

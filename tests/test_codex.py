@@ -10,6 +10,7 @@ import pytest
 from codex_free_worker.adapters.codex import CodexAdapter
 from codex_free_worker.contracts import (
     ReasoningEffort,
+    SandboxMode,
     WorkerMode,
     WorkerRequest,
     WorkerStatus,
@@ -45,26 +46,56 @@ class _FakeProcess:
         self.killed = True
 
 
-def _adapter() -> CodexAdapter:
+def _adapter(
+    *,
+    inspect_sandbox: SandboxMode = SandboxMode.WORKSPACE_WRITE,
+    fix_sandbox: SandboxMode = SandboxMode.WORKSPACE_WRITE,
+) -> CodexAdapter:
     return CodexAdapter(
         codex_bin="codex",
         model="gpt-6-luna",
         reasoning_effort=ReasoningEffort.LOW,
+        inspect_sandbox=inspect_sandbox,
+        fix_sandbox=fix_sandbox,
         timeout_seconds=30,
         max_result_chars=8_000,
     )
 
 
 @pytest.mark.parametrize(
-    ("mode", "expected_sandbox"),
+    ("mode", "inspect_sandbox", "fix_sandbox", "expected_sandbox"),
     [
-        (WorkerMode.INSPECT, "read-only"),
-        (WorkerMode.FIX, "workspace-write"),
+        (
+            WorkerMode.INSPECT,
+            SandboxMode.WORKSPACE_WRITE,
+            SandboxMode.WORKSPACE_WRITE,
+            "workspace-write",
+        ),
+        (
+            WorkerMode.FIX,
+            SandboxMode.WORKSPACE_WRITE,
+            SandboxMode.WORKSPACE_WRITE,
+            "workspace-write",
+        ),
+        (
+            WorkerMode.INSPECT,
+            SandboxMode.READ_ONLY,
+            SandboxMode.WORKSPACE_WRITE,
+            "read-only",
+        ),
+        (
+            WorkerMode.FIX,
+            SandboxMode.WORKSPACE_WRITE,
+            SandboxMode.READ_ONLY,
+            "read-only",
+        ),
     ],
 )
 def test_codex_command_is_isolated_and_uses_mode_sandbox(
     tmp_path: Path,
     mode: WorkerMode,
+    inspect_sandbox: SandboxMode,
+    fix_sandbox: SandboxMode,
     expected_sandbox: str,
 ) -> None:
     process = _FakeProcess(_payload())
@@ -79,7 +110,10 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
         return process
 
     with patch("codex_free_worker.adapters.codex.subprocess.Popen", side_effect=popen):
-        result = _adapter().execute(WorkerRequest(task="Run make check.", cwd=tmp_path, mode=mode))
+        result = _adapter(
+            inspect_sandbox=inspect_sandbox,
+            fix_sandbox=fix_sandbox,
+        ).execute(WorkerRequest(task="Run make check.", cwd=tmp_path, mode=mode))
 
     command = captured_commands[0]
     schema = captured_schemas[0]

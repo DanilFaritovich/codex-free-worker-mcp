@@ -13,7 +13,7 @@ import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _request_id: ContextVar[str | None] = ContextVar("worker_request_id", default=None)
@@ -59,7 +59,7 @@ class _SafeFormatter(logging.Formatter):
 
     def _fields(self, record: logging.LogRecord) -> dict[str, object]:
         data: dict[str, object] = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc)
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC)
             .isoformat(timespec="milliseconds")
             .replace("+00:00", "Z"),
             "level": record.levelname,

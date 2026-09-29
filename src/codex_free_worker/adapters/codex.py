@@ -16,6 +16,7 @@ from codex_free_worker.contracts import (
     worker_result_json_schema,
 )
 from codex_free_worker.errors import WorkerExecutionError
+from codex_free_worker.project_env import build_project_env, resolve_backend_binary
 from codex_free_worker.prompt import build_worker_prompt
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class CodexAdapter:
             )
 
             command = [
-                self._codex_bin,
+                resolve_backend_binary(self._codex_bin),
                 "exec",
                 "--ephemeral",
                 "--ignore-user-config",
@@ -80,6 +81,7 @@ class CodexAdapter:
                 process = subprocess.Popen(
                     command,
                     cwd=request.cwd,
+                    env=build_project_env(request.cwd),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,

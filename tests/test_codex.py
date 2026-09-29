@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -117,7 +118,8 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
 
     command = captured_commands[0]
     schema = captured_schemas[0]
-    assert command[:2] == ["codex", "exec"]
+    assert Path(command[0]).name == "codex"
+    assert command[1] == "exec"
     assert "--ephemeral" in command
     assert "--ignore-user-config" in command
     assert command[command.index("--model") + 1] == "gpt-6-luna"
@@ -212,3 +214,26 @@ def test_codex_timeout_is_reported(tmp_path: Path) -> None:
         )
 
     assert process.killed is True
+
+
+def test_codex_subprocess_inherits_target_project_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_bin = tmp_path / ".venv" / "bin"
+    project_bin.mkdir(parents=True)
+    monkeypatch.setenv("PATH", "/parent/bin")
+    monkeypatch.setenv("VIRTUAL_ENV", "/parent/venv")
+
+    with patch(
+        "codex_free_worker.adapters.codex.subprocess.Popen",
+        return_value=_FakeProcess(_payload()),
+    ) as popen:
+        _adapter().execute(
+            WorkerRequest(task="Run make check.", cwd=tmp_path, mode=WorkerMode.INSPECT)
+        )
+
+    child_env = popen.call_args.kwargs["env"]
+    assert child_env["PATH"] == f"{project_bin}{os.pathsep}/parent/bin"
+    assert child_env["VIRTUAL_ENV"] == str(tmp_path / ".venv")
+    assert os.environ["PATH"] == "/parent/bin"
+    assert os.environ["VIRTUAL_ENV"] == "/parent/venv"

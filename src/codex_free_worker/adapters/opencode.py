@@ -10,6 +10,7 @@ from typing import TextIO
 
 from codex_free_worker.contracts import WorkerRequest, WorkerResult
 from codex_free_worker.errors import WorkerExecutionError
+from codex_free_worker.project_env import build_project_env, resolve_backend_binary
 from codex_free_worker.prompt import build_opencode_prompt, result_markers
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ class OpenCodeAdapter:
     def execute(self, request: WorkerRequest) -> WorkerResult:
         prompt = build_opencode_prompt(request.task, request.mode)
         command = [
-            self._opencode_bin,
+            resolve_backend_binary(self._opencode_bin),
             "run",
             "--auto",
             "--dir",
@@ -132,6 +133,7 @@ class OpenCodeAdapter:
             process = subprocess.Popen(
                 command,
                 cwd=request.cwd,
+                env=build_project_env(request.cwd),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,

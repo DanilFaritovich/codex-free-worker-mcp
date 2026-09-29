@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -148,10 +149,38 @@ def test_adapter_uses_model_directory_and_streaming_pipe(tmp_path: Path) -> None
 
     command = popen.call_args.args[0]
     kwargs = popen.call_args.kwargs
-    assert command[:2] == ["opencode", "run"]
+    assert Path(command[0]).name == "opencode"
+    assert command[1] == "run"
     assert "--auto" in command
     assert str(tmp_path) in command
     assert "provider/model" in command
     assert kwargs["stdout"] is subprocess.PIPE
     assert kwargs["stderr"] is subprocess.DEVNULL
     assert result.status is WorkerStatus.PASSED
+
+
+def test_opencode_subprocess_inherits_target_project_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_bin = tmp_path / "backend" / ".venv" / "bin"
+    project_bin.mkdir(parents=True)
+    monkeypatch.setenv("PATH", "/parent/bin")
+
+    adapter = OpenCodeAdapter(
+        opencode_bin="opencode",
+        model="provider/model",
+        timeout_seconds=30,
+        max_result_chars=8_000,
+    )
+    with patch(
+        "codex_free_worker.adapters.opencode.subprocess.Popen",
+        return_value=_FakeProcess(_event(_passed_payload())),
+    ) as popen:
+        adapter.execute(
+            WorkerRequest(task="Run make check.", cwd=tmp_path, mode=WorkerMode.INSPECT)
+        )
+
+    child_env = popen.call_args.kwargs["env"]
+    assert child_env["PATH"] == f"{project_bin}{os.pathsep}/parent/bin"
+    assert child_env["VIRTUAL_ENV"] == str(tmp_path / "backend" / ".venv")
+    assert os.environ["PATH"] == "/parent/bin"

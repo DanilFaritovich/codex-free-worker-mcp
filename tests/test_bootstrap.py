@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from codex_free_worker.adapters.codex import CodexAdapter
 from codex_free_worker.adapters.opencode import OpenCodeAdapter
 from codex_free_worker.bootstrap import build_worker_executor
@@ -8,7 +10,10 @@ from codex_free_worker.config import Settings
 from codex_free_worker.contracts import SandboxMode, WorkerBackend
 
 
-def test_bootstrap_builds_opencode_adapter_by_default(tmp_path: Path) -> None:
+def test_bootstrap_builds_opencode_adapter_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FREE_WORKER_BACKEND", raising=False)
     settings = Settings(
         allowed_roots=(tmp_path,),
         opencode_model="provider/model",

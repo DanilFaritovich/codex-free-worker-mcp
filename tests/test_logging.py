@@ -185,11 +185,18 @@ def test_unexpected_exception_logs_safe_stack_but_not_exception_text(
     assert str(tmp_path) not in stderr.getvalue()
 
 
-def test_stdio_module_entrypoint_emits_json_to_stderr() -> None:
-    """Exercise the real python -m entrypoint, not only an imported module."""
+def test_module_entrypoint_emits_json_to_stderr_without_running_stdio_loop() -> None:
+    """Exercise __main__ logger setup in a child process without an unbounded MCP loop."""
+    probe = (
+        "import runpy, sys\n"
+        "from unittest.mock import patch\n"
+        "sys.argv = ['codex_free_worker.server', 'stdio']\n"
+        "with patch('mcp.server.MCPServer.run') as run:\n"
+        "    runpy.run_module('codex_free_worker.server', run_name='__main__')\n"
+        "    run.assert_called_once_with(transport='stdio')\n"
+    )
     process = subprocess.run(
-        [sys.executable, "-m", "codex_free_worker.server", "stdio"],
-        input="",
+        [sys.executable, "-c", probe],
         capture_output=True,
         text=True,
         timeout=15,
@@ -202,7 +209,7 @@ def test_stdio_module_entrypoint_emits_json_to_stderr() -> None:
         },
     )
 
-    assert process.returncode == 0
+    assert process.returncode == 0, process.stderr
     records = [json.loads(line) for line in process.stderr.splitlines() if line.startswith("{")]
     assert any(
         record.get("event") == "server_starting"

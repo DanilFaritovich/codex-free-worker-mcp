@@ -99,9 +99,21 @@ FREE_WORKER_BACKEND=codex
 ```
 
 Codex backend по умолчанию использует `gpt-6-luna` с reasoning effort `low`. Обе
-настройки можно переопределить. Для `inspect_task` дочерний Codex запускается с
-`read-only`, для `fix_task` — с `workspace-write`. Сессия ephemeral и игнорирует
-пользовательский Codex config, но использует обычную авторизацию Codex.
+настройки можно переопределить. **По умолчанию и `inspect_task`, и `fix_task`
+используют `workspace-write`**, чтобы проверки могли создавать служебные кеши и
+временные файлы. Для каждого инструмента sandbox можно независимо переключить на
+`read-only` через `FREE_WORKER_INSPECT_SANDBOX` и `FREE_WORKER_FIX_SANDBOX`.
+Допустимы только `workspace-write` и `read-only`. Дочерняя сессия ephemeral,
+игнорирует пользовательский Codex config и сохраняет обычную авторизацию Codex.
+Настройки применяются только к Codex backend, не к OpenCode.
+
+**Важно:** `workspace-write` технически разрешает дочерней модели изменять файлы.
+Промпт `inspect_task` по-прежнему запрещает намеренные изменения исходников,
+тестов, документации, конфигурации и отслеживаемых Git файлов, но **не обеспечивает
+технической защиты от таких изменений**. После проверок смотрите статус Git;
+подтверждение MCP-инструментов лучше оставить в режиме `prompt`.
+При `read-only` проверки, записывающие кеши (например Ruff или pytest),
+могут завершаться ошибкой без дополнительной настройки.
 
 Автоматического fallback между backend'ами в этой версии специально нет.
 
@@ -156,6 +168,8 @@ FREE_WORKER_BACKEND = "codex"
 FREE_WORKER_CODEX_BIN = "/absolute/path/to/codex"
 FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
 FREE_WORKER_CODEX_REASONING_EFFORT = "low"
+FREE_WORKER_INSPECT_SANDBOX = "workspace-write"
+FREE_WORKER_FIX_SANDBOX = "workspace-write"
 
 # Общие настройки
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
@@ -182,18 +196,22 @@ which opencode
 codex mcp list
 ```
 
-После первых тестов можно автоматически разрешить read-only inspection и оставить
-подтверждение для задач, способных менять файлы:
+Значения из `[mcp_servers.free_worker.env]` в `~/.codex/config.toml` Codex передаёт
+MCP-серверу через переменные окружения. Сам worker **не читает родительский
+`config.toml` напрямую**. Например, чтобы запретить запись только при проверках,
+измените существующие значения:
 
 ```toml
-[mcp_servers.free_worker.tools.inspect_task]
-approval_mode = "approve"
-
-[mcp_servers.free_worker.tools.fix_task]
-approval_mode = "prompt"
+[mcp_servers.free_worker.env]
+FREE_WORKER_INSPECT_SANDBOX = "read-only"
+FREE_WORKER_FIX_SANDBOX = "workspace-write"
 ```
 
-Для первого запуска нормально оставить оба инструмента в режиме `prompt`.
+Это альтернативный вариант текущего блока `[mcp_servers.free_worker.env]`:
+не создавайте второй одноимённый TOML-блок. После правки перезапустите основной
+Codex CLI. Поскольку `inspect_task` теперь по умолчанию работает с
+`workspace-write`, лучше сохранить подтверждение обоих MCP-инструментов
+в режиме `prompt`, если вы сознательно не принимаете риск записи файлов.
 
 ## MCP tools
 
@@ -212,8 +230,8 @@ fix_task(
 ```
 
 `inspect_task` предназначен для validation, диагностики логов, CI/build inspection и
-большого рутинного исследования. Worker получает инструкцию не изменять файлы
-репозитория.
+большого рутинного исследования. Worker получает инструкцию не изменять исходники, тесты и конфигурацию, но может
+создавать служебные кеши и временные файлы, если это разрешено sandbox.
 
 `fix_task` разрешает только ограниченные механические изменения, когда ожидаемое
 поведение уже определено. Архитектура, security, persistence, migration policy,

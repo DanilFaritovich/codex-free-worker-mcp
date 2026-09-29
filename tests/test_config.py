@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from codex_free_worker.config import Settings
-from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
+from codex_free_worker.contracts import ReasoningEffort, SandboxMode, WorkerBackend
 
 
 def test_default_backend_remains_opencode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +42,48 @@ def test_codex_backend_can_be_selected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FREE_WORKER_BACKEND", "codex")
 
     assert Settings.from_env().backend is WorkerBackend.CODEX
+
+
+def test_codex_sandbox_defaults_to_workspace_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FREE_WORKER_INSPECT_SANDBOX", raising=False)
+    monkeypatch.delenv("FREE_WORKER_FIX_SANDBOX", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.inspect_sandbox is SandboxMode.WORKSPACE_WRITE
+    assert settings.fix_sandbox is SandboxMode.WORKSPACE_WRITE
+
+
+@pytest.mark.parametrize(
+    ("inspect", "fix", "expected_inspect", "expected_fix"),
+    [
+        ("read-only", "workspace-write", SandboxMode.READ_ONLY, SandboxMode.WORKSPACE_WRITE),
+        ("workspace-write", "read-only", SandboxMode.WORKSPACE_WRITE, SandboxMode.READ_ONLY),
+    ],
+)
+def test_codex_sandbox_overrides_are_independent(
+    monkeypatch: pytest.MonkeyPatch,
+    inspect: str,
+    fix: str,
+    expected_inspect: SandboxMode,
+    expected_fix: SandboxMode,
+) -> None:
+    monkeypatch.setenv("FREE_WORKER_INSPECT_SANDBOX", inspect)
+    monkeypatch.setenv("FREE_WORKER_FIX_SANDBOX", fix)
+
+    settings = Settings.from_env()
+
+    assert settings.inspect_sandbox is expected_inspect
+    assert settings.fix_sandbox is expected_fix
+
+
+@pytest.mark.parametrize("key", ["FREE_WORKER_INSPECT_SANDBOX", "FREE_WORKER_FIX_SANDBOX"])
+def test_codex_sandbox_rejects_unsupported_values(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    monkeypatch.setenv(key, "danger-full-access")
+    with pytest.raises(ValueError, match=key):
+        Settings.from_env()
 
 
 def test_allowed_roots_are_parsed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

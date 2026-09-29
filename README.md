@@ -101,9 +101,19 @@ FREE_WORKER_BACKEND=codex
 ```
 
 The Codex backend defaults to `gpt-6-luna` with `low` reasoning effort. Both are
-configurable. `inspect_task` runs the child Codex with a `read-only` sandbox, while
-`fix_task` uses `workspace-write`. The child session is ephemeral and ignores the
-user's Codex config, but keeps normal Codex authentication.
+configurable. **Both `inspect_task` and `fix_task` default to `workspace-write`**
+so validators can write disposable caches and temporary files. Each sandbox can be
+changed independently to `read-only` through `FREE_WORKER_INSPECT_SANDBOX` and
+`FREE_WORKER_FIX_SANDBOX`. Only `workspace-write` and `read-only` are supported.
+The child session is ephemeral and ignores the user's Codex config, but keeps normal
+Codex authentication. These settings apply to the Codex backend, not OpenCode.
+
+**Important:** `workspace-write` gives the child permission to modify repository
+files. The `inspect_task` prompt still forbids intentional edits to source code,
+tests, docs, configuration and tracked files, but a model instruction is **not** a
+filesystem security boundary. Review the worktree after delegated inspections, and keep
+MCP tool approval on `prompt` when this permission matters. In `read-only`, validators
+that write caches (for example Ruff or pytest) may fail unless configured accordingly.
 
 There is intentionally no automatic backend fallback in this version.
 
@@ -158,6 +168,8 @@ FREE_WORKER_BACKEND = "codex"
 FREE_WORKER_CODEX_BIN = "/absolute/path/to/codex"
 FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
 FREE_WORKER_CODEX_REASONING_EFFORT = "low"
+FREE_WORKER_INSPECT_SANDBOX = "workspace-write"
+FREE_WORKER_FIX_SANDBOX = "workspace-write"
 
 # Shared
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
@@ -184,19 +196,21 @@ Restart Codex after changing its config, then verify the server is visible:
 codex mcp list
 ```
 
-For a more convenient approval policy after you have tested the worker, you can approve
-read-only inspection automatically while still prompting before file-changing delegated
-work:
+The values inside `[mcp_servers.free_worker.env]` in `~/.codex/config.toml` are passed
+to this MCP server as environment variables. The worker **does not read the parent
+`config.toml` directly**. To switch to a no-write inspection sandbox, set:
 
 ```toml
-[mcp_servers.free_worker.tools.inspect_task]
-approval_mode = "approve"
-
-[mcp_servers.free_worker.tools.fix_task]
-approval_mode = "prompt"
+[mcp_servers.free_worker.env]
+FREE_WORKER_INSPECT_SANDBOX = "read-only"
+FREE_WORKER_FIX_SANDBOX = "workspace-write"
 ```
 
-Keeping both tools on `prompt` initially is a reasonable first-run policy.
+These are alternative values for the existing MCP environment block: edit the existing
+keys rather than adding a second table. Restart the parent Codex CLI to apply changes.
+
+Because inspection now defaults to `workspace-write`, keep both tools on `prompt` for
+approval unless you deliberately accept the additional filesystem-write risk.
 
 ## MCP tools
 
@@ -215,7 +229,8 @@ fix_task(
 ```
 
 `inspect_task` is for high-output validation, diagnosis, CI/build inspection, and broad
-routine exploration. It instructs the worker not to modify repository files.
+routine exploration. It forbids intentional source/configuration edits but permits disposable
+cache and temporary-file writes where the configured sandbox allows them.
 
 `fix_task` permits only bounded mechanical changes where intended behavior is already
 clear. Architecture, security, persistence, migration policy, concurrency, deployment

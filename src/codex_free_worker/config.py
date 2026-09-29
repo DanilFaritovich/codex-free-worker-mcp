@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
+from codex_free_worker.contracts import ReasoningEffort, SandboxMode, WorkerBackend
 
 
 class Settings(BaseSettings):
@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     codex_reasoning_effort: ReasoningEffort = Field(
         default=ReasoningEffort.LOW,
         validation_alias="FREE_WORKER_CODEX_REASONING_EFFORT",
+    )
+    inspect_sandbox: SandboxMode = Field(
+        default=SandboxMode.WORKSPACE_WRITE,
+        validation_alias="FREE_WORKER_INSPECT_SANDBOX",
+    )
+    fix_sandbox: SandboxMode = Field(
+        default=SandboxMode.WORKSPACE_WRITE,
+        validation_alias="FREE_WORKER_FIX_SANDBOX",
     )
     timeout_seconds: int = Field(
         default=840,

@@ -16,6 +16,11 @@ class WorkerMode(StrEnum):
     FIX = "fix"
 
 
+class SandboxMode(StrEnum):
+    READ_ONLY = "read-only"
+    WORKSPACE_WRITE = "workspace-write"
+
+
 class WorkerStatus(StrEnum):
     PASSED = "passed"
     FIXED = "fixed"

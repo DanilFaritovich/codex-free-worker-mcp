@@ -2,10 +2,11 @@ from codex_free_worker.contracts import WorkerMode
 from codex_free_worker.prompt import build_opencode_prompt, build_worker_prompt
 
 
-def test_inspect_prompt_is_read_only() -> None:
+def test_inspect_prompt_forbids_source_edits_but_allows_disposable_caches() -> None:
     prompt = build_worker_prompt("Run make check.", WorkerMode.INSPECT)
 
-    assert "Do not modify repository files" in prompt
+    assert "Do not intentionally edit source code" in prompt
+    assert "disposable caches and temporary files" in prompt
     assert "Raw logs stay with you" in prompt
     assert "FREE_WORKER_RESULT_BEGIN" not in prompt
 

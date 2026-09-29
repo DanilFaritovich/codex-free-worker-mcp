@@ -9,6 +9,7 @@ from pathlib import Path
 from codex_free_worker.contracts import (
     CodexWorkerResult,
     ReasoningEffort,
+    SandboxMode,
     WorkerMode,
     WorkerRequest,
     WorkerResult,
@@ -27,17 +28,23 @@ class CodexAdapter:
         codex_bin: str,
         model: str,
         reasoning_effort: ReasoningEffort,
+        inspect_sandbox: SandboxMode,
+        fix_sandbox: SandboxMode,
         timeout_seconds: int,
         max_result_chars: int,
     ) -> None:
         self._codex_bin = codex_bin
         self._model = model
         self._reasoning_effort = reasoning_effort
+        self._inspect_sandbox = inspect_sandbox
+        self._fix_sandbox = fix_sandbox
         self._timeout_seconds = timeout_seconds
         self._max_result_chars = max_result_chars
 
     def execute(self, request: WorkerRequest) -> WorkerResult:
-        sandbox = "read-only" if request.mode is WorkerMode.INSPECT else "workspace-write"
+        sandbox = (
+            self._inspect_sandbox if request.mode is WorkerMode.INSPECT else self._fix_sandbox
+        ).value
         prompt = build_worker_prompt(request.task, request.mode)
 
         with tempfile.TemporaryDirectory(prefix="codex-worker-") as temp_dir:

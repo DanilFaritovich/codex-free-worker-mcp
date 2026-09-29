@@ -14,7 +14,8 @@ from codex_free_worker.contracts import WorkerMode, WorkerRequest, WorkerResult,
 from codex_free_worker.errors import WorkerExecutionError
 from codex_free_worker.logging_config import bind_request_id, configure_logging, safe_stack
 
-logger = logging.getLogger(__name__)
+# python -m executes this module as __main__; use a stable package logger.
+logger = logging.getLogger("codex_free_worker.server")
 
 SERVER_INSTRUCTIONS = """
 Use this worker for bounded repository execution loops that would otherwise produce

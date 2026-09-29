@@ -23,7 +23,7 @@ def _payload() -> str:
             "status": "passed",
             "summary": "Checks passed.",
             "changed_files": [],
-            "checks": {"make check": "passed"},
+            "checks": [{"name": "make check", "result": "passed"}],
             "relevant_locations": [],
             "needs_main_model_decision": False,
             "decision_required": None,
@@ -93,6 +93,7 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
     assert 'approval_policy="never"' in command
     assert schema["additionalProperties"] is False
     assert result.status is WorkerStatus.PASSED
+    assert result.checks == {"make check": "passed"}
 
 
 def test_codex_rejects_invalid_structured_result(tmp_path: Path) -> None:

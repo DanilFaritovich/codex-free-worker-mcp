@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -15,6 +16,8 @@ from codex_free_worker.contracts import (
 )
 from codex_free_worker.errors import WorkerExecutionError
 from codex_free_worker.prompt import build_worker_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class CodexAdapter:
@@ -76,6 +79,10 @@ class CodexAdapter:
                     text=True,
                 )
             except FileNotFoundError as exc:
+                logger.error(
+                    "Worker executable not found.",
+                    extra={"event": "backend_executable_missing", "backend": "codex"},
+                )
                 raise WorkerExecutionError(
                     f"Codex executable not found: {self._codex_bin}"
                 ) from exc
@@ -85,11 +92,27 @@ class CodexAdapter:
             except subprocess.TimeoutExpired as exc:
                 process.kill()
                 process.communicate()
+                logger.warning(
+                    "Worker process exceeded timeout.",
+                    extra={
+                        "event": "backend_timeout",
+                        "backend": "codex",
+                        "timeout_seconds": self._timeout_seconds,
+                    },
+                )
                 raise WorkerExecutionError(
                     f"Codex worker exceeded {self._timeout_seconds}s timeout."
                 ) from exc
 
             if process.returncode != 0:
+                logger.error(
+                    "Worker process exited unsuccessfully.",
+                    extra={
+                        "event": "backend_process_failed",
+                        "backend": "codex",
+                        "exit_code": process.returncode,
+                    },
+                )
                 raise WorkerExecutionError(
                     f"Codex exited with code {process.returncode}; raw logs were not returned."
                 )

@@ -60,3 +60,30 @@ def test_relative_allowed_root_is_rejected(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(ValueError, match="absolute paths"):
         Settings.from_env()
+
+
+def test_logging_defaults_and_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("LOG_LEVEL", "LOG_FORMAT", "SERVICE_NAME", "ENVIRONMENT"):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings.from_env()
+    assert settings.log_level == "INFO"
+    assert settings.log_format == "json"
+    assert settings.service_name == "codex-free-worker"
+    assert settings.environment == "development"
+
+    monkeypatch.setenv("LOG_LEVEL", "WARNING")
+    monkeypatch.setenv("LOG_FORMAT", "text")
+    monkeypatch.setenv("SERVICE_NAME", "my-worker")
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+    settings = Settings.from_env()
+    assert settings.log_level == "WARNING"
+    assert settings.log_format == "text"
+    assert settings.service_name == "my-worker"
+    assert settings.environment == "staging"
+
+
+def test_invalid_logging_format_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_FORMAT", "xml")
+    with pytest.raises(ValueError, match="LOG_FORMAT"):
+        Settings.from_env()

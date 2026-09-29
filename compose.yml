@@ -11,6 +11,10 @@ services:
       FREE_WORKER_ALLOWED_ROOTS: ${HOST_WORK_ROOT}
       FREE_WORKER_TIMEOUT_SECONDS: ${FREE_WORKER_TIMEOUT_SECONDS:-840}
       FREE_WORKER_MAX_RESULT_CHARS: ${FREE_WORKER_MAX_RESULT_CHARS:-8000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      SERVICE_NAME: ${SERVICE_NAME:-codex-free-worker}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       # Preserve the host path used by Codex, e.g. HOST_WORK_ROOT=/home/YOU/Work.
       - ${HOST_WORK_ROOT}:${HOST_WORK_ROOT}

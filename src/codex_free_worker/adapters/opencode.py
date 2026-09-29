@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import threading
 from collections.abc import Iterable
@@ -10,6 +11,8 @@ from typing import TextIO
 from codex_free_worker.contracts import WorkerRequest, WorkerResult
 from codex_free_worker.errors import WorkerExecutionError
 from codex_free_worker.prompt import build_opencode_prompt, result_markers
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_marked_payload(text: str) -> str | None:
@@ -136,6 +139,10 @@ class OpenCodeAdapter:
                 bufsize=1,
             )
         except FileNotFoundError as exc:
+            logger.error(
+                "Worker executable not found.",
+                extra={"event": "backend_executable_missing", "backend": "opencode"},
+            )
             raise WorkerExecutionError(
                 f"OpenCode executable not found: {self._opencode_bin}"
             ) from exc
@@ -159,6 +166,14 @@ class OpenCodeAdapter:
             process.kill()
             process.wait()
             reader.join(timeout=5)
+            logger.warning(
+                "Worker process exceeded timeout.",
+                extra={
+                    "event": "backend_timeout",
+                    "backend": "opencode",
+                    "timeout_seconds": self._timeout_seconds,
+                },
+            )
             raise WorkerExecutionError(
                 f"OpenCode worker exceeded {self._timeout_seconds}s timeout."
             ) from exc
@@ -174,6 +189,14 @@ class OpenCodeAdapter:
             return collector.build_result(self._max_result_chars)
         except WorkerExecutionError:
             if returncode != 0:
+                logger.error(
+                    "Worker process exited unsuccessfully.",
+                    extra={
+                        "event": "backend_process_failed",
+                        "backend": "opencode",
+                        "exit_code": returncode,
+                    },
+                )
                 raise WorkerExecutionError(
                     f"OpenCode exited with code {returncode} without a valid compact result."
                 ) from None

@@ -1,42 +1,78 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from codex_free_worker.contracts import ReasoningEffort, WorkerBackend
 
 
-def _parse_allowed_roots(raw: str) -> tuple[Path, ...]:
-    roots: list[Path] = []
-    for item in raw.split(os.pathsep):
-        value = item.strip()
-        if not value:
-            continue
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
-        root = Path(value).expanduser()
-        if not root.is_absolute():
-            raise ValueError("FREE_WORKER_ALLOWED_ROOTS entries must be absolute paths")
-        roots.append(root.resolve())
+    backend: WorkerBackend = Field(
+        default=WorkerBackend.OPENCODE,
+        validation_alias="FREE_WORKER_BACKEND",
+    )
+    opencode_bin: str = Field(
+        default="opencode",
+        validation_alias="FREE_WORKER_OPENCODE_BIN",
+    )
+    opencode_model: str = Field(
+        default="openrouter/cohere/north-mini-code:free",
+        validation_alias=AliasChoices("FREE_WORKER_OPENCODE_MODEL", "FREE_WORKER_MODEL"),
+    )
+    codex_bin: str = Field(
+        default="codex",
+        validation_alias="FREE_WORKER_CODEX_BIN",
+    )
+    codex_model: str = Field(
+        default="gpt-6-luna",
+        validation_alias="FREE_WORKER_CODEX_MODEL",
+    )
+    codex_reasoning_effort: ReasoningEffort = Field(
+        default=ReasoningEffort.LOW,
+        validation_alias="FREE_WORKER_CODEX_REASONING_EFFORT",
+    )
+    timeout_seconds: int = Field(
+        default=840,
+        ge=1,
+        validation_alias="FREE_WORKER_TIMEOUT_SECONDS",
+    )
+    max_result_chars: int = Field(
+        default=8_000,
+        ge=1,
+        validation_alias="FREE_WORKER_MAX_RESULT_CHARS",
+    )
+    allowed_roots: Annotated[tuple[Path, ...], NoDecode] = Field(
+        default=(),
+        validation_alias="FREE_WORKER_ALLOWED_ROOTS",
+    )
 
-    return tuple(roots)
+    @field_validator("allowed_roots", mode="before")
+    @classmethod
+    def parse_allowed_roots(cls, value: object) -> object:
+        if value in (None, ""):
+            return ()
+        if not isinstance(value, str):
+            return value
 
+        roots: list[Path] = []
+        for item in value.split(os.pathsep):
+            item = item.strip()
+            if not item:
+                continue
 
-@dataclass(frozen=True, slots=True)
-class Settings:
-    opencode_bin: str = "opencode"
-    model: str = "openrouter/cohere/north-mini-code:free"
-    timeout_seconds: int = 840
-    max_result_chars: int = 8_000
-    allowed_roots: tuple[Path, ...] = ()
+            root = Path(item).expanduser()
+            if not root.is_absolute():
+                raise ValueError("FREE_WORKER_ALLOWED_ROOTS entries must be absolute paths")
+            roots.append(root.resolve())
+
+        return tuple(roots)
 
     @classmethod
     def from_env(cls) -> Settings:
-        return cls(
-            opencode_bin=os.getenv("FREE_WORKER_OPENCODE_BIN", "opencode"),
-            model=os.getenv(
-                "FREE_WORKER_MODEL",
-                "openrouter/cohere/north-mini-code:free",
-            ),
-            timeout_seconds=int(os.getenv("FREE_WORKER_TIMEOUT_SECONDS", "840")),
-            max_result_chars=int(os.getenv("FREE_WORKER_MAX_RESULT_CHARS", "8000")),
-            allowed_roots=_parse_allowed_roots(os.getenv("FREE_WORKER_ALLOWED_ROOTS", "")),
-        )
+        return cls()

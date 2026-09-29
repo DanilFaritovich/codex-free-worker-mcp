@@ -3,14 +3,15 @@
 # Codex Free Worker
 
 Локальный MCP-мост, который позволяет Codex делегировать ограниченные циклы выполнения
-в OpenCode.
+в настраиваемый backend: OpenCode или изолированный дочерний Codex CLI.
 
-Worker удерживает сырые логи тестов, сборки и CI вне контекста основной модели. OpenCode
-сам анализирует вывод команд, может выполнять ограниченные циклы работы и возвращает
-Codex только компактный структурированный результат.
+Worker удерживает сырые логи тестов, сборки и CI вне контекста основной модели. Выбранный
+backend сам анализирует вывод команд, выполняет bounded execution loops и возвращает
+основному Codex только компактный структурированный результат.
 
-Модель OpenCode выбирается во время запуска через `FREE_WORKER_MODEL`; репозиторий не
-привязан к конкретной модели.
+Backend и модель выбираются во время запуска. Для обратной совместимости по умолчанию
+остаётся OpenCode; для Codex используется `FREE_WORKER_BACKEND=codex`. Автоматического
+fallback между backend'ами нет.
 
 ## Разделение ответственности
 
@@ -45,13 +46,15 @@ Codex только компактный структурированный ре�
 
 ## Требования
 
-- Python 3.11+
-- OpenCode, доступный как `opencode`
-- настроенный provider/model для OpenCode
+- Python 3.14+
 - Codex CLI с поддержкой stdio MCP
+- для OpenCode backend: OpenCode и настроенный provider/model
+- для Codex backend: рабочая авторизация Codex CLI
 
-Worker запускает OpenCode неинтерактивно через `opencode run`, `--auto`, `--dir`,
-`--model` и `--format json`.
+OpenCode backend неинтерактивно запускает `opencode run`. Codex backend запускает
+`codex exec` с явными model, reasoning effort, sandbox и JSON Schema, а также с
+`--ephemeral` и `--ignore-user-config`. Последний флаг не даёт дочернему Codex
+загрузить MCP-конфигурацию родительского Codex и предотвращает рекурсивное делегирование.
 
 ## Быстрый старт: native install (рекомендуется)
 
@@ -62,7 +65,7 @@ Native-режим проще всего для разработки, потом�
 git clone https://github.com/DanilFaritovich/codex-free-worker-mcp.git
 cd codex-free-worker-mcp
 
-python -m venv .venv
+python3.14 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 make check
@@ -71,7 +74,8 @@ make check
 Если окружение было создано инструментом, который не устанавливает `pip`, сначала
 установите/инициализируйте `pip`.
 
-Отдельно проверьте OpenCode с той же моделью, которую будете использовать в worker:
+Для OpenCode backend отдельно проверьте OpenCode с той же моделью, которую будете
+использовать в worker:
 
 ```bash
 export FREE_WORKER_MODEL="provider/model"
@@ -84,10 +88,27 @@ opencode run \
   "Reply with OK"
 ```
 
+## Настройка backend
+
+Выберите один backend, если хотите изменить backward-compatible default:
+
+```text
+FREE_WORKER_BACKEND=opencode
+# или
+FREE_WORKER_BACKEND=codex
+```
+
+Codex backend по умолчанию использует `gpt-6-luna` с reasoning effort `low`. Обе
+настройки можно переопределить. Для `inspect_task` дочерний Codex запускается с
+`read-only`, для `fix_task` — с `workspace-write`. Сессия ephemeral и игнорирует
+пользовательский Codex config, но использует обычную авторизацию Codex.
+
+Автоматического fallback между backend'ами в этой версии специально нет.
+
 ## Авторизация provider
 
-Сам worker не управляет credentials provider'а. OpenCode уже должен уметь использовать
-настроенную модель.
+Сам worker не управляет credentials. Для OpenCode configured provider уже должен быть
+доступен. Для Codex backend локальный Codex CLI уже должен быть авторизован.
 
 Если OpenCode авторизован через собственную конфигурацию provider'а, дополнительный
 секрет в MCP-блоке не нужен.
@@ -129,17 +150,29 @@ enabled_tools = ["inspect_task", "fix_task"]
 default_tools_approval_mode = "prompt"
 
 [mcp_servers.free_worker.env]
-FREE_WORKER_MODEL = "provider/model"
-FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
+FREE_WORKER_BACKEND = "codex"
+
+# Codex backend
+FREE_WORKER_CODEX_BIN = "/absolute/path/to/codex"
+FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
+FREE_WORKER_CODEX_REASONING_EFFORT = "low"
+
+# Общие настройки
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
 FREE_WORKER_TIMEOUT_SECONDS = "840"
 FREE_WORKER_MAX_RESULT_CHARS = "8000"
+
+# Для OpenCode вместо Codex:
+# FREE_WORKER_BACKEND = "opencode"
+# FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
+# FREE_WORKER_OPENCODE_MODEL = "provider/model"
 ```
 
-`FREE_WORKER_OPENCODE_BIN` можно не указывать, если `opencode` уже доступен в
-`PATH` MCP-процесса. Чтобы узнать host path:
+Путь к executable можно не указывать, если соответствующая команда уже доступна в
+`PATH` MCP-процесса:
 
 ```bash
+which codex
 which opencode
 ```
 
@@ -224,9 +257,11 @@ Stop if an architectural or behavioral decision is required.
 }
 ```
 
-JSONL stdout OpenCode обрабатывается потоково. Tool/log events отбрасываются вместо
-накопления в памяти, а bridge сохраняет только компактный marked result из
-несинтетического OpenCode `text` event. stderr отбрасывается и не передаётся Codex.
+JSONL stdout OpenCode обрабатывается потоково, а bridge сохраняет только компактный
+marked result из несинтетического OpenCode `text` event. Codex backend вместо markers
+передаёт Pydantic JSON Schema контракта `WorkerResult` через
+`codex exec --output-schema` и затем повторно валидирует JSON локально. Raw stderr обоих
+адаптеров не передаётся основному Codex.
 
 Статусы:
 
@@ -257,8 +292,8 @@ design, public contracts, ambiguous behavior, and final acceptance on the primar
 model.
 ```
 
-Project skills не должны знать об OpenCode, конкретном provider или модели. Выбор модели
-остаётся host/runtime настройкой через `FREE_WORKER_MODEL`.
+Project skills не должны знать, какой backend, provider или model выбран. Backend/model
+остаются host/runtime настройками MCP.
 
 ### Использование с codex-development-standards
 
@@ -311,7 +346,7 @@ policy.
 
 ### Рекомендуемый workflow интеграции
 
-1. Установить worker нативно и проверить OpenCode с выбранной моделью.
+1. Установить worker нативно и отдельно проверить выбранный backend.
 2. Настроить `free_worker` глобально в Codex с `required = false`.
 3. Ограничить `FREE_WORKER_ALLOWED_ROOTS` минимально необходимым development root.
 4. Перезапустить Codex и проверить сервер через `codex mcp list`.
@@ -344,14 +379,16 @@ codex mcp list
 Проверьте, что `command` и `cwd` заданы абсолютными путями, затем полностью
 перезапустите Codex после изменения `~/.codex/config.toml`.
 
-### OpenCode не найден
+### Не найден executable backend
 
 ```bash
+which codex
 which opencode
 ```
 
-Укажите этот абсолютный путь в `FREE_WORKER_OPENCODE_BIN` или убедитесь, что
-`opencode` доступен в окружении MCP-процесса.
+Укажите абсолютный путь в `FREE_WORKER_CODEX_BIN` или
+`FREE_WORKER_OPENCODE_BIN`, либо убедитесь, что команда доступна в окружении
+MCP-процесса.
 
 ### `cwd is outside FREE_WORKER_ALLOWED_ROOTS`
 
@@ -360,15 +397,15 @@ which opencode
 
 ### Worker возвращает `failed`
 
-Сначала запустите OpenCode напрямую с настроенной моделью. Если provider требует
-авторизацию, проверьте её отдельно от MCP.
+Сначала запустите выбранный backend напрямую. Проверьте model availability и
+авторизацию отдельно от MCP.
 
-Bridge специально не возвращает Codex raw stderr и большие логи. Для диагностики
-provider/runtime при необходимости запускайте OpenCode напрямую.
+Bridge специально не возвращает основному Codex raw stderr и большие логи. Для
+диагностики provider/runtime запускайте backend CLI напрямую.
 
 ## Docker
 
-Образ содержит MCP server и OpenCode:
+Образ содержит MCP server, OpenCode и Codex CLI:
 
 ```bash
 docker build -t codex-free-worker .
@@ -399,25 +436,26 @@ FREE_WORKER_TIMEOUT_SECONDS = "840"
 Mount сохраняет те же абсолютные пути репозиториев, потому что Codex передаёт worker
 абсолютный `cwd`. Этот путь также должен входить в `FREE_WORKER_ALLOWED_ROOTS`.
 
-Docker mode содержит только generic tooling и OpenCode. Делегированные project checks
-могут требовать project runtimes, Docker CLI/socket, `gh` и другие host tools. Поэтому
-для разработки **рекомендуется native stdio**.
+Docker mode содержит worker CLI, но delegated project checks всё равно могут требовать
+project runtimes, Docker CLI/socket, `gh`, состояние авторизации и другие host tools.
+Поэтому для разработки **рекомендуется native stdio**.
 
 ## Security boundary
 
-Bridge запускает OpenCode фиксированным списком аргументов и не использует
-`shell=True`.
+Оба адаптера запускают backend фиксированным списком аргументов и не используют
+`shell=True`. До запуска общий service разрешает `cwd` и отклоняет репозитории вне
+`FREE_WORKER_ALLOWED_ROOTS`.
 
-OpenCode запускается с `--auto`, чтобы worker мог выполнять разрешённые действия без
-интерактивного approval. До запуска bridge разрешает `cwd` и отклоняет репозитории вне
-`FREE_WORKER_ALLOWED_ROOTS`. Worker prompt запрещает privilege escalation, изменение
-Git index/refs/history, commits, pushes, branch/tag mutation, production deployment,
-получение secrets и unrelated edits.
+Для OpenCode read-only режим `inspect_task` остаётся instruction-level boundary. Codex
+дополнительно применяет sandbox `read-only` для inspect и `workspace-write` для fix.
+Дочерний Codex использует `--ignore-user-config`, поэтому не загружает MCP-конфигурацию
+родительского Codex.
 
-Эти ограничения не являются OS sandbox. `inspect_task` — instruction-level read-only
-boundary, поэтому оставляйте обычные Codex/OpenCode permission controls включёнными и не
-передавайте secrets или production credentials недоверенной модели/provider. После
-любого delegated fix основная модель Codex должна проверить working-tree diff.
+Общий worker prompt запрещает privilege escalation, изменение Git index/refs/history,
+commits, pushes, branch/tag mutation, production deployment, получение secrets и
+unrelated edits. Эти меры не являются полной OS security boundary; оставляйте обычные
+permission controls backend включёнными. После delegated fix основная модель Codex
+должна проверить working-tree diff.
 
 ## Разработка
 
@@ -426,6 +464,7 @@ make fix
 make check
 ```
 
-Тесты покрывают allowed-root configuration, границы server/tool delegation, policy
-inspect/fix prompts, spoof-resistant extraction компактного результата, большой
-потоковый JSONL, запрет передачи raw logs и построение команды OpenCode.
+Тесты покрывают Pydantic contracts, allowed-root enforcement, выбор backend, границы
+server/tool delegation, inspect/fix policy, защиту OpenCode JSONL от spoofing, изоляцию
+и sandbox Codex command, structured-result validation, timeout, отсутствие executable и
+запрет передачи raw logs. CI запускает проверки проекта на Python 3.14 плюс Docker build.

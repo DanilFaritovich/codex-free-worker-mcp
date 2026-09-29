@@ -5,9 +5,9 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 
+from codex_free_worker.bootstrap import build_worker_service
 from codex_free_worker.config import Settings
-from codex_free_worker.models import WorkerMode, WorkerResult, WorkerStatus
-from codex_free_worker.opencode import run_opencode_task
+from codex_free_worker.contracts import WorkerMode, WorkerRequest, WorkerResult, WorkerStatus
 
 SERVER_INSTRUCTIONS = """
 Use this worker for bounded repository execution loops that would otherwise produce
@@ -25,12 +25,9 @@ server = MCPServer("codex-free-worker", instructions=SERVER_INSTRUCTIONS)
 def _run_task(task: str, cwd: str, mode: WorkerMode) -> WorkerResult:
     try:
         settings = Settings.from_env()
-        return run_opencode_task(
-            task=task,
-            cwd=Path(cwd),
-            mode=mode,
-            settings=settings,
-        )
+        service = build_worker_service(settings)
+        request = WorkerRequest(task=task, cwd=Path(cwd), mode=mode)
+        return service.execute(request)
     except Exception as exc:
         return WorkerResult(
             status=WorkerStatus.FAILED,

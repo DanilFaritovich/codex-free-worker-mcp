@@ -203,11 +203,7 @@ def test_stdio_module_entrypoint_emits_json_to_stderr() -> None:
     )
 
     assert process.returncode == 0
-    records = [
-        json.loads(line)
-        for line in process.stderr.splitlines()
-        if line.startswith("{")
-    ]
+    records = [json.loads(line) for line in process.stderr.splitlines() if line.startswith("{")]
     assert any(
         record.get("event") == "server_starting"
         and record.get("logger") == "codex_free_worker.server"

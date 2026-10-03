@@ -62,6 +62,14 @@ class Settings(BaseSettings):
         default=SandboxMode.WORKSPACE_WRITE,
         validation_alias="FREE_WORKER_FIX_SANDBOX",
     )
+    inspect_network: bool = Field(
+        default=False,
+        validation_alias="FREE_WORKER_INSPECT_NETWORK",
+    )
+    fix_network: bool = Field(
+        default=False,
+        validation_alias="FREE_WORKER_FIX_NETWORK",
+    )
     timeout_seconds: int = Field(
         default=840,
         ge=1,

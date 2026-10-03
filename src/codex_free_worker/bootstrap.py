@@ -16,6 +16,8 @@ def build_worker_executor(settings: Settings) -> WorkerExecutor:
             reasoning_effort=settings.codex_reasoning_effort,
             inspect_sandbox=settings.inspect_sandbox,
             fix_sandbox=settings.fix_sandbox,
+            inspect_network=settings.inspect_network,
+            fix_network=settings.fix_network,
             timeout_seconds=settings.timeout_seconds,
             max_result_chars=settings.max_result_chars,
         )

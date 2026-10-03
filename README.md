@@ -106,7 +106,12 @@ so validators can write disposable caches and temporary files. Each sandbox can 
 changed independently to `read-only` through `FREE_WORKER_INSPECT_SANDBOX` and
 `FREE_WORKER_FIX_SANDBOX`. Only `workspace-write` and `read-only` are supported.
 The child session is ephemeral and ignores the user's Codex config, but keeps normal
-Codex authentication. These settings apply to the Codex backend, not OpenCode.
+Codex authentication. Network access for child Codex shell commands is disabled by default
+and can be enabled independently for inspect/fix through
+`FREE_WORKER_INSPECT_NETWORK=true` and `FREE_WORKER_FIX_NETWORK=true`. The network
+override is applied only when that mode uses `workspace-write`; it does not inject GitHub
+tokens, provider credentials, or other secrets. These settings apply to the Codex backend,
+not OpenCode.
 
 **Important:** `workspace-write` gives the child permission to modify repository
 files. The `inspect_task` prompt still forbids intentional edits to source code,
@@ -185,6 +190,8 @@ FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
 FREE_WORKER_CODEX_REASONING_EFFORT = "low"
 FREE_WORKER_INSPECT_SANDBOX = "workspace-write"
 FREE_WORKER_FIX_SANDBOX = "workspace-write"
+FREE_WORKER_INSPECT_NETWORK = "false"
+FREE_WORKER_FIX_NETWORK = "false"
 
 # Shared
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
@@ -222,7 +229,11 @@ FREE_WORKER_FIX_SANDBOX = "workspace-write"
 ```
 
 These are alternative values for the existing MCP environment block: edit the existing
-keys rather than adding a second table. Restart the parent Codex CLI to apply changes.
+keys rather than adding a second table. To allow network access for a child Codex mode,
+set its matching `FREE_WORKER_*_NETWORK` value to `"true"`. Network permission only
+opens the sandbox network path; any CLI such as `gh`, `git`, or `curl` still relies on
+credentials and host tooling already available to the child process. Restart the parent
+Codex CLI to apply changes.
 
 Because inspection now defaults to `workspace-write`, keep both tools on `prompt` for
 approval unless you deliberately accept the additional filesystem-write risk.

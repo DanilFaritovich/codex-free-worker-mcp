@@ -31,6 +31,8 @@ class CodexAdapter:
         reasoning_effort: ReasoningEffort,
         inspect_sandbox: SandboxMode,
         fix_sandbox: SandboxMode,
+        inspect_network: bool,
+        fix_network: bool,
         timeout_seconds: int,
         max_result_chars: int,
     ) -> None:
@@ -39,13 +41,19 @@ class CodexAdapter:
         self._reasoning_effort = reasoning_effort
         self._inspect_sandbox = inspect_sandbox
         self._fix_sandbox = fix_sandbox
+        self._inspect_network = inspect_network
+        self._fix_network = fix_network
         self._timeout_seconds = timeout_seconds
         self._max_result_chars = max_result_chars
 
     def execute(self, request: WorkerRequest) -> WorkerResult:
-        sandbox = (
+        sandbox_mode = (
             self._inspect_sandbox if request.mode is WorkerMode.INSPECT else self._fix_sandbox
-        ).value
+        )
+        sandbox = sandbox_mode.value
+        network_enabled = (
+            self._inspect_network if request.mode is WorkerMode.INSPECT else self._fix_network
+        )
         prompt = build_worker_prompt(request.task, request.mode)
 
         with tempfile.TemporaryDirectory(prefix="codex-worker-") as temp_dir:
@@ -74,8 +82,15 @@ class CodexAdapter:
                 f'model_reasoning_effort="{self._reasoning_effort.value}"',
                 "--config",
                 'approval_policy="never"',
-                prompt,
             ]
+            if network_enabled and sandbox_mode is SandboxMode.WORKSPACE_WRITE:
+                command.extend(
+                    [
+                        "--config",
+                        "sandbox_workspace_write.network_access=true",
+                    ]
+                )
+            command.append(prompt)
 
             try:
                 process = subprocess.Popen(

@@ -52,6 +52,8 @@ def _adapter(
     *,
     inspect_sandbox: SandboxMode = SandboxMode.WORKSPACE_WRITE,
     fix_sandbox: SandboxMode = SandboxMode.WORKSPACE_WRITE,
+    inspect_network: bool = False,
+    fix_network: bool = False,
 ) -> CodexAdapter:
     return CodexAdapter(
         codex_bin="codex",
@@ -59,6 +61,8 @@ def _adapter(
         reasoning_effort=ReasoningEffort.LOW,
         inspect_sandbox=inspect_sandbox,
         fix_sandbox=fix_sandbox,
+        inspect_network=inspect_network,
+        fix_network=fix_network,
         timeout_seconds=30,
         max_result_chars=8_000,
     )
@@ -131,6 +135,48 @@ def test_codex_command_is_isolated_and_uses_mode_sandbox(
     assert schema["additionalProperties"] is False
     assert result.status is WorkerStatus.PASSED
     assert result.checks == {"make check": "passed"}
+
+
+@pytest.mark.parametrize(
+    ("mode", "inspect_network", "fix_network", "sandbox", "expect_network"),
+    [
+        (WorkerMode.INSPECT, False, False, SandboxMode.WORKSPACE_WRITE, False),
+        (WorkerMode.INSPECT, True, False, SandboxMode.WORKSPACE_WRITE, True),
+        (WorkerMode.FIX, False, True, SandboxMode.WORKSPACE_WRITE, True),
+        (WorkerMode.FIX, True, False, SandboxMode.WORKSPACE_WRITE, False),
+        (WorkerMode.INSPECT, True, False, SandboxMode.READ_ONLY, False),
+        (WorkerMode.FIX, False, True, SandboxMode.READ_ONLY, False),
+    ],
+)
+def test_codex_network_access_is_mode_specific_and_workspace_write_only(
+    tmp_path: Path,
+    mode: WorkerMode,
+    inspect_network: bool,
+    fix_network: bool,
+    sandbox: SandboxMode,
+    expect_network: bool,
+) -> None:
+    captured: list[list[str]] = []
+
+    def popen(command: list[str], **kwargs: object) -> _FakeProcess:
+        del kwargs
+        captured.append(command)
+        return _FakeProcess(_payload())
+
+    inspect_sandbox = sandbox if mode is WorkerMode.INSPECT else SandboxMode.WORKSPACE_WRITE
+    fix_sandbox = sandbox if mode is WorkerMode.FIX else SandboxMode.WORKSPACE_WRITE
+
+    with patch("codex_free_worker.adapters.codex.subprocess.Popen", side_effect=popen):
+        _adapter(
+            inspect_sandbox=inspect_sandbox,
+            fix_sandbox=fix_sandbox,
+            inspect_network=inspect_network,
+            fix_network=fix_network,
+        ).execute(WorkerRequest(task="Inspect network.", cwd=tmp_path, mode=mode))
+
+    command = captured[0]
+    network_config = "sandbox_workspace_write.network_access=true"
+    assert (network_config in command) is expect_network
 
 
 def test_codex_rejects_invalid_structured_result(tmp_path: Path) -> None:

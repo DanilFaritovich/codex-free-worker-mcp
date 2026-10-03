@@ -44,6 +44,26 @@ def test_codex_backend_can_be_selected(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings.from_env().backend is WorkerBackend.CODEX
 
 
+def test_codex_network_defaults_to_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FREE_WORKER_INSPECT_NETWORK", raising=False)
+    monkeypatch.delenv("FREE_WORKER_FIX_NETWORK", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.inspect_network is False
+    assert settings.fix_network is False
+
+
+def test_codex_network_overrides_are_independent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREE_WORKER_INSPECT_NETWORK", "true")
+    monkeypatch.setenv("FREE_WORKER_FIX_NETWORK", "false")
+
+    settings = Settings.from_env()
+
+    assert settings.inspect_network is True
+    assert settings.fix_network is False
+
+
 def test_codex_sandbox_defaults_to_workspace_write(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FREE_WORKER_INSPECT_SANDBOX", raising=False)
     monkeypatch.delenv("FREE_WORKER_FIX_SANDBOX", raising=False)

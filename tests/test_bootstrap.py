@@ -37,6 +37,8 @@ def test_bootstrap_forwards_sandbox_choices_to_codex_adapter(tmp_path: Path) -> 
         allowed_roots=(tmp_path,),
         inspect_sandbox=SandboxMode.READ_ONLY,
         fix_sandbox=SandboxMode.WORKSPACE_WRITE,
+        inspect_network=True,
+        fix_network=False,
     )
 
     with patch("codex_free_worker.bootstrap.CodexAdapter") as create_adapter:
@@ -44,3 +46,5 @@ def test_bootstrap_forwards_sandbox_choices_to_codex_adapter(tmp_path: Path) -> 
 
     assert create_adapter.call_args.kwargs["inspect_sandbox"] is SandboxMode.READ_ONLY
     assert create_adapter.call_args.kwargs["fix_sandbox"] is SandboxMode.WORKSPACE_WRITE
+    assert create_adapter.call_args.kwargs["inspect_network"] is True
+    assert create_adapter.call_args.kwargs["fix_network"] is False

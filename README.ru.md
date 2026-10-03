@@ -105,7 +105,11 @@ Codex backend по умолчанию использует `gpt-6-luna` с reaso
 `read-only` через `FREE_WORKER_INSPECT_SANDBOX` и `FREE_WORKER_FIX_SANDBOX`.
 Допустимы только `workspace-write` и `read-only`. Дочерняя сессия ephemeral,
 игнорирует пользовательский Codex config и сохраняет обычную авторизацию Codex.
-Настройки применяются только к Codex backend, не к OpenCode.
+Сетевой доступ для shell-команд дочернего Codex по умолчанию выключен. Его можно
+независимо включить для inspect/fix через `FREE_WORKER_INSPECT_NETWORK=true` и
+`FREE_WORKER_FIX_NETWORK=true`. Настройка сети применяется только когда соответствующий
+режим использует `workspace-write`; она не передаёт GitHub tokens, credentials provider'а
+или другие secrets. Настройки применяются только к Codex backend, не к OpenCode.
 
 **Важно:** `workspace-write` технически разрешает дочерней модели изменять файлы.
 Промпт `inspect_task` по-прежнему запрещает намеренные изменения исходников,
@@ -185,6 +189,8 @@ FREE_WORKER_CODEX_MODEL = "gpt-6-luna"
 FREE_WORKER_CODEX_REASONING_EFFORT = "low"
 FREE_WORKER_INSPECT_SANDBOX = "workspace-write"
 FREE_WORKER_FIX_SANDBOX = "workspace-write"
+FREE_WORKER_INSPECT_NETWORK = "false"
+FREE_WORKER_FIX_NETWORK = "false"
 
 # Общие настройки
 FREE_WORKER_ALLOWED_ROOTS = "/home/YOU/Work"
@@ -223,8 +229,11 @@ FREE_WORKER_FIX_SANDBOX = "workspace-write"
 ```
 
 Это альтернативный вариант текущего блока `[mcp_servers.free_worker.env]`:
-не создавайте второй одноимённый TOML-блок. После правки перезапустите основной
-Codex CLI. Поскольку `inspect_task` теперь по умолчанию работает с
+не создавайте второй одноимённый TOML-блок. Чтобы разрешить сеть конкретному режиму
+дочернего Codex, установите соответствующее значение `FREE_WORKER_*_NETWORK = "true"`.
+Это только открывает сетевой доступ sandbox: `gh`, `git`, `curl` и другие CLI по-прежнему
+используют credentials и host tooling, уже доступные дочернему процессу. После правки
+перезапустите основной Codex CLI. Поскольку `inspect_task` теперь по умолчанию работает с
 `workspace-write`, лучше сохранить подтверждение обоих MCP-инструментов
 в режиме `prompt`, если вы сознательно не принимаете риск записи файлов.
 

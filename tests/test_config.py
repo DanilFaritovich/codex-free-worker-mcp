@@ -149,3 +149,23 @@ def test_invalid_logging_format_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("LOG_FORMAT", "xml")
     with pytest.raises(ValueError, match="LOG_FORMAT"):
         Settings.from_env()
+
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_report_retries_environment_override(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("FREE_WORKER_OPENCODE_REPORT_RETRIES", value)
+    assert Settings.from_env().opencode_report_retries == int(value)
+
+
+@pytest.mark.parametrize("value", ["-1", "2"])
+def test_report_retries_rejects_unbounded_values(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("FREE_WORKER_OPENCODE_REPORT_RETRIES", value)
+    with pytest.raises(ValueError, match="FREE_WORKER_OPENCODE_REPORT_RETRIES"):
+        Settings.from_env()
+
+
+def test_report_retries_defaults_to_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FREE_WORKER_OPENCODE_REPORT_RETRIES", raising=False)
+    assert Settings.from_env().opencode_report_retries == 1

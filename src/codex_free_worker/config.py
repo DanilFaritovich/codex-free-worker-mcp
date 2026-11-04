@@ -42,6 +42,12 @@ class Settings(BaseSettings):
         default="openrouter/cohere/north-mini-code:free",
         validation_alias=AliasChoices("FREE_WORKER_OPENCODE_MODEL", "FREE_WORKER_MODEL"),
     )
+    opencode_report_retries: int = Field(
+        default=1,
+        ge=0,
+        le=1,
+        validation_alias="FREE_WORKER_OPENCODE_REPORT_RETRIES",
+    )
     codex_bin: str = Field(
         default="codex",
         validation_alias="FREE_WORKER_CODEX_BIN",

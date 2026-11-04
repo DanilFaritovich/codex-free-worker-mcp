@@ -24,6 +24,7 @@ def build_worker_executor(settings: Settings) -> WorkerExecutor:
 
     return OpenCodeAdapter(
         opencode_bin=settings.opencode_bin,
+        report_retries=settings.opencode_report_retries,
         model=settings.opencode_model,
         timeout_seconds=settings.timeout_seconds,
         max_result_chars=settings.max_result_chars,

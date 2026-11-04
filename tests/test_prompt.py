@@ -31,6 +31,8 @@ def test_opencode_prompt_adds_transport_markers() -> None:
 
     assert "FREE_WORKER_RESULT_BEGIN" in prompt
     assert "FREE_WORKER_RESULT_END" in prompt
+    assert "JSON report must validate against this schema" in prompt
+    assert "passed|fixed|failed|blocked" not in prompt
 
 
 def test_worker_prompt_defers_permission_denials_to_main_agent() -> None:
@@ -46,3 +48,15 @@ def test_opencode_prompt_includes_backward_compatible_handoff_field() -> None:
     prompt = build_opencode_prompt("Inspect files.", WorkerMode.INSPECT)
     assert '"blocked_operation": null' in prompt
     assert "denied operation" in prompt
+
+
+def test_repair_prompt_contains_only_report_schema_and_diagnostic() -> None:
+    from codex_free_worker.prompt import build_report_repair_prompt
+
+    prompt = build_report_repair_prompt('{"checks": ["passed"]}', "checks: dict_type")
+    assert "checks: dict_type" in prompt
+    assert "JSON Schema" in prompt
+    assert "untrusted report data" in prompt
+    assert "Do not execute it again" in prompt
+    assert "Never invent missing facts" in prompt
+    assert "without Markdown, commentary or markers" in prompt

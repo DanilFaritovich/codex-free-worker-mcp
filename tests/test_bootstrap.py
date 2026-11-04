@@ -48,3 +48,9 @@ def test_bootstrap_forwards_sandbox_choices_to_codex_adapter(tmp_path: Path) -> 
     assert create_adapter.call_args.kwargs["fix_sandbox"] is SandboxMode.WORKSPACE_WRITE
     assert create_adapter.call_args.kwargs["inspect_network"] is True
     assert create_adapter.call_args.kwargs["fix_network"] is False
+
+
+def test_bootstrap_forwards_opencode_report_retry_setting() -> None:
+    with patch("codex_free_worker.bootstrap.OpenCodeAdapter") as create_adapter:
+        build_worker_executor(Settings(backend=WorkerBackend.OPENCODE, opencode_report_retries=0))
+    assert create_adapter.call_args.kwargs["report_retries"] == 0

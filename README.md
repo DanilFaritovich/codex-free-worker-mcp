@@ -202,6 +202,7 @@ FREE_WORKER_MAX_RESULT_CHARS = "8000"
 # FREE_WORKER_BACKEND = "opencode"
 # FREE_WORKER_OPENCODE_BIN = "/absolute/path/to/opencode"
 # FREE_WORKER_OPENCODE_MODEL = "provider/model"
+# FREE_WORKER_OPENCODE_REPORT_RETRIES = "1"
 ```
 
 The backend executable path is optional when the corresponding executable is already in
@@ -349,6 +350,29 @@ strict Pydantic JSON Schema through `codex exec --output-schema`, with checks re
 as fixed-shape list items. It converts the result back to the public `WorkerResult`
 dictionary-shaped checks and validates it locally. Raw stderr is discarded by both adapters and is never
 returned to the primary Codex agent.
+
+If a bounded, marked OpenCode report fails JSON syntax or field-shape validation, the adapter
+makes at most one separate, format-only repair request to the same model.
+`FREE_WORKER_OPENCODE_REPORT_RETRIES` defaults to `1`; set it to `0` to disable repair (the only
+accepted values are `0` and `1`). Compose forwards this setting as well. The repair receives
+only the invalid report, JSON Schema and a sanitized validation diagnostic, never the original
+task or session history. It runs in a disposable configuration/directory with all tools denied,
+no configured MCP servers, and plugins disabled. Normal provider authentication is retained.
+Before isolation, a bounded `opencode --pure debug config` call resolves only the selected
+provider definition to carry forward, including custom local model endpoints; other
+configuration is omitted. The repair prompt requires preserving facts and permission handoffs;
+schema validation checks structure, not the truth of the model's claims. The adapter also
+rejects changes to schema-valid top-level fields decoded from the original report before any
+syntax error. The dedicated repair accepts a plain JSON object; task execution still requires
+marked reports.
+
+The original task is never rerun. Configuration inspection (at most 10 seconds) and repair share
+a maximum 60-second budget within the remaining shared worker timeout. A second invalid response
+fails with a sanitized validation diagnostic; there is no repair loop. Missing reports,
+oversized reports, process failures/timeouts and inconsistent permission handoffs do not trigger
+repair. Repair emits `report_repair_started`, `report_repair_completed` or
+`report_repair_failed` events without logging report contents. The public MCP result and Codex
+backend are unchanged; no additional dependencies are required.
 
 Possible statuses:
 

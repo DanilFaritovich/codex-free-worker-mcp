@@ -43,11 +43,13 @@ def test_worker_never_owns_git_delivery() -> None:
     assert "modify Git index, refs, or history".lower() in lowered
 
 
-def test_opencode_prompt_adds_transport_markers() -> None:
+def test_opencode_prompt_requires_one_plain_json_object() -> None:
     prompt = build_opencode_prompt("Run make check.", WorkerMode.INSPECT)
 
-    assert "FREE_WORKER_RESULT_BEGIN" in prompt
-    assert "FREE_WORKER_RESULT_END" in prompt
+    assert "FREE_WORKER_RESULT_BEGIN" not in prompt
+    assert "FREE_WORKER_RESULT_END" not in prompt
+    assert "entire final assistant response must be exactly one JSON object" in prompt
+    assert "Do not include Markdown" in prompt
     assert "JSON report must validate against this schema" in prompt
     assert "passed|fixed|failed|blocked" not in prompt
 

@@ -4,9 +4,6 @@ import json
 
 from codex_free_worker.contracts import WorkerMode, WorkerResult
 
-_RESULT_START = "FREE_WORKER_RESULT_BEGIN"
-_RESULT_END = "FREE_WORKER_RESULT_END"
-
 
 def build_worker_prompt(task: str, mode: WorkerMode, *, load_project_context: bool = False) -> str:
     context_text = (
@@ -88,9 +85,10 @@ def build_opencode_prompt(
     return f"""
 {prompt}
 
-At the very end of your response, output exactly one JSON object between these markers:
+Your entire final assistant response must be exactly one JSON object.
+Do not include Markdown, code fences, markers, or explanatory text.
 
-{_RESULT_START}
+Example:
 {{
   "status": "passed",
   "summary": "concise result/root cause",
@@ -101,7 +99,6 @@ At the very end of your response, output exactly one JSON object between these m
   "decision_required": null,
   "blocked_operation": null
 }}
-{_RESULT_END}
 
 The JSON report must validate against this schema:
 {json.dumps(WorkerResult.model_json_schema())}
@@ -139,7 +136,3 @@ Expected JSON Schema:
 Input envelope:
 {envelope}
 """.strip()
-
-
-def result_markers() -> tuple[str, str]:
-    return _RESULT_START, _RESULT_END

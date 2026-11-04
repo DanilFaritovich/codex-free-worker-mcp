@@ -9,7 +9,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -22,70 +22,124 @@ from codex_free_worker.project_env import build_project_env, resolve_backend_bin
 from codex_free_worker.prompt import (
     build_opencode_prompt,
     build_report_repair_prompt,
-    result_markers,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_marked_payload(text: str) -> str | None:
-    start_marker, end_marker = result_markers()
-    start = text.rfind(start_marker)
-    if start < 0:
-        return None
-
-    start += len(start_marker)
-    end = text.find(end_marker, start)
-    if end < 0:
-        return None
-
-    return text[start:end].strip()
-
-
-def _extract_text_event(line: str) -> str | None:
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(event, dict) or event.get("type") != "text":
-        return None
-
-    part = event.get("part")
-    if not isinstance(part, dict) or part.get("type") != "text":
-        return None
-    if part.get("synthetic") is True:
-        return None
-
-    text = part.get("text")
-    return text if isinstance(text, str) else None
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise WorkerExecutionError("OpenCode final JSON contains ambiguous duplicate keys.")
+        result[key] = value
+    return result
 
 
 @dataclass(slots=True)
 class _ResultCollector:
-    latest_payload: str | None = None
-    allow_plain_json: bool = False
+    """Collect the last assistant step, never a report found in arbitrary output.
+
+    OpenCode run.ts emits completed text parts and assistant processor step parts,
+    but omits message.updated (and thus role/finish). A matching step_finish with
+    reason=stop is the JSONL completion signal. See docs/opencode-results.md.
+    """
+
+    max_result_chars: int
+    session_id: str | None = None
+    message_id: str | None = None
+    text: str = ""
+    completed: bool = False
+    has_tool: bool = False
+    final_count: int = 0
+    error: str | None = None
 
     def feed_line(self, line: str) -> None:
-        text = _extract_text_event(line)
-        if text is None:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
             return
-
-        payload = _extract_marked_payload(text)
-        if payload is not None:
-            self.latest_payload = payload
-        elif self.allow_plain_json:
-            self.latest_payload = text.strip()
+        if not isinstance(event, dict):
+            return
+        kind = event.get("type")
+        if kind == "error":
+            self.error = "OpenCode reported a session error; no result was accepted."
+            return
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("synthetic") is True:
+            return
+        if kind not in ("step_start", "step_finish", "text", "tool_use"):
+            return
+        expected_type = {
+            "step_start": "step-start",
+            "step_finish": "step-finish",
+            "text": "text",
+            "tool_use": "tool",
+        }[kind]
+        if part.get("type") != expected_type:
+            return
+        session = event.get("sessionID")
+        message = part.get("messageID")
+        if (
+            not isinstance(session, str)
+            or not session
+            or part.get("sessionID") != session
+            or not isinstance(message, str)
+            or not message
+        ):
+            self.error = "OpenCode result events lack consistent session/message identifiers."
+            return
+        if self.session_id is not None and session != self.session_id:
+            self.error = "OpenCode result contains ambiguous sessions."
+            return
+        if kind == "step_start":
+            self.session_id = session
+            self.message_id = message
+            self.text = ""
+            self.completed = False
+            self.has_tool = False
+            return
+        if self.message_id != message or self.session_id != session or self.completed:
+            self.error = "OpenCode result contains events outside an active assistant step."
+            return
+        if kind == "tool_use":
+            self.has_tool = True
+        elif kind == "text":
+            timing = part.get("time")
+            text = part.get("text")
+            if not isinstance(timing, dict) or not timing.get("end") or not isinstance(text, str):
+                self.error = "OpenCode assistant text is incomplete."
+                return
+            # Bound retained text even when the model ignores the compact report rule.
+            self.text = (self.text + text[: self.max_result_chars + 1])[: self.max_result_chars + 1]
+        elif kind == "step_finish":
+            self.completed = part.get("reason") == "stop" and not self.has_tool
+            if self.completed:
+                self.final_count += 1
+            else:
+                self.text = ""
+                self.message_id = None
 
     def build_result(self, max_result_chars: int) -> WorkerResult:
-        payload = self.latest_payload
-        if payload is None:
-            raise WorkerExecutionError("OpenCode finished without a marked compact result.")
+        if self.error:
+            raise WorkerExecutionError(self.error)
+        if self.final_count > 1:
+            raise WorkerExecutionError("OpenCode returned multiple final assistant answers.")
+        if not self.completed:
+            raise WorkerExecutionError(
+                "OpenCode finished without a completed final assistant answer."
+            )
+        payload = self.text
+        if not payload.strip():
+            raise WorkerExecutionError("OpenCode final assistant answer is empty.")
         if len(payload) > max_result_chars:
             raise WorkerExecutionError(
                 f"Worker result exceeded {max_result_chars} characters; raw logs were not returned."
             )
 
+        # Let schema validation produce its sanitized syntax diagnostic.
+        with suppress(json.JSONDecodeError):
+            json.loads(payload, object_pairs_hook=_unique_object)
         try:
             return WorkerResult.model_validate_json(payload)
         except ValidationError as exc:
@@ -149,7 +203,7 @@ def _validate_preserved_fields(payload: str, repaired: WorkerResult) -> None:
 
 
 def _parse_result_lines(lines: Iterable[str], max_result_chars: int) -> WorkerResult:
-    collector = _ResultCollector()
+    collector = _ResultCollector(max_result_chars)
     for line in lines:
         collector.feed_line(line)
     return collector.build_result(max_result_chars)
@@ -398,7 +452,7 @@ class OpenCodeAdapter:
             process.kill()
             raise WorkerExecutionError("OpenCode stdout pipe was not created.")
 
-        collector = _ResultCollector(allow_plain_json=repair)
+        collector = _ResultCollector(self._max_result_chars)
         reader_errors: list[BaseException] = []
         reader = threading.Thread(
             target=_consume_stdout,
@@ -432,19 +486,16 @@ class OpenCodeAdapter:
         if reader_errors:
             raise WorkerExecutionError("Failed while reading OpenCode JSONL output.")
 
-        try:
-            return collector.build_result(self._max_result_chars)
-        except WorkerExecutionError:
-            if returncode != 0:
-                logger.error(
-                    "Worker process exited unsuccessfully.",
-                    extra={
-                        "event": "backend_process_failed",
-                        "backend": "opencode",
-                        "exit_code": returncode,
-                    },
-                )
-                raise WorkerExecutionError(
-                    f"OpenCode exited with code {returncode} without a valid compact result."
-                ) from None
-            raise
+        if returncode != 0:
+            logger.error(
+                "Worker process exited unsuccessfully.",
+                extra={
+                    "event": "backend_process_failed",
+                    "backend": "opencode",
+                    "exit_code": returncode,
+                },
+            )
+            raise WorkerExecutionError(
+                f"OpenCode exited with code {returncode}; no result was accepted."
+            )
+        return collector.build_result(self._max_result_chars)

@@ -277,7 +277,7 @@ arbitrary commands taken from the worker result or silently elevate the worker.
 If approval cannot be obtained, leave the task blocked. For a non-permission
 design decision, `blocked_operation` stays `null`.
 
-Both backends use this result contract; OpenCode still uses JSON markers and
+Both backends use this result contract; OpenCode uses a final JSON object and
 Codex still uses strict structured output. No new backend permissions are
 granted by this feature.
 
@@ -344,14 +344,20 @@ Example:
 }
 ```
 
-OpenCode JSONL stdout is consumed incrementally and only a compact marked result from a
-non-synthetic OpenCode `text` event is retained. The Codex backend instead supplies the
+OpenCode JSONL stdout is consumed incrementally. Only completed, non-synthetic text from
+an assistant step ending with `step_finish` reason `stop` is accepted, correlated by
+session/message IDs. Intermediate steps and tool output cannot supply a result. The entire
+final answer must be one JSON object validating as `WorkerResult`, without Markdown,
+commentary or markers. Multiple final answers, duplicate JSON keys, empty/incomplete answers,
+session errors and nonzero process exits fail closed. Old `FREE_WORKER_RESULT_BEGIN/END`
+wrappers are no longer supported. See [event protocol notes](docs/opencode-results.md).
+The Codex backend instead supplies the
 strict Pydantic JSON Schema through `codex exec --output-schema`, with checks represented
 as fixed-shape list items. It converts the result back to the public `WorkerResult`
 dictionary-shaped checks and validates it locally. Raw stderr is discarded by both adapters and is never
 returned to the primary Codex agent.
 
-If a bounded, marked OpenCode report fails JSON syntax or field-shape validation, the adapter
+If a bounded final OpenCode report fails JSON syntax or field-shape validation, the adapter
 makes at most one separate, format-only repair request to the same model.
 `FREE_WORKER_OPENCODE_REPORT_RETRIES` defaults to `1`; set it to `0` to disable repair (the only
 accepted values are `0` and `1`). Compose forwards this setting as well. The repair receives
@@ -363,8 +369,8 @@ provider definition to carry forward, including custom local model endpoints; ot
 configuration is omitted. The repair prompt requires preserving facts and permission handoffs;
 schema validation checks structure, not the truth of the model's claims. The adapter also
 rejects changes to schema-valid top-level fields decoded from the original report before any
-syntax error. The dedicated repair accepts a plain JSON object; task execution still requires
-marked reports.
+syntax error. Both task execution and dedicated repair require a plain JSON object in a
+completed final assistant answer.
 
 The original task is never rerun. Configuration inspection (at most 10 seconds) and repair share
 a maximum 60-second budget within the remaining shared worker timeout. A second invalid response

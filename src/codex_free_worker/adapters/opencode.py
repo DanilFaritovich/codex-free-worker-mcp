@@ -131,9 +131,11 @@ def _validate_preserved_fields(payload: str, repaired: WorkerResult) -> None:
         except ValueError:
             break
         if isinstance(key, str) and key in WorkerResult.model_fields:
-            field = WorkerResult.model_fields[key]
+            annotation = WorkerResult.model_fields[key].annotation
+            if annotation is None:
+                raise WorkerExecutionError(f"Report field has no type annotation: {key}.")
             try:
-                TypeAdapter(field.annotation).validate_python(value)
+                TypeAdapter(annotation).validate_python(value)
             except ValidationError:
                 pass  # The field's structure is precisely what needs repair.
             else:

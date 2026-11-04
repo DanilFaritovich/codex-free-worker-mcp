@@ -8,7 +8,15 @@ _RESULT_START = "FREE_WORKER_RESULT_BEGIN"
 _RESULT_END = "FREE_WORKER_RESULT_END"
 
 
-def build_worker_prompt(task: str, mode: WorkerMode) -> str:
+def build_worker_prompt(task: str, mode: WorkerMode, *, load_project_context: bool = False) -> str:
+    context_text = (
+        "Read and follow the repository's AGENTS.md and applicable project-local instructions "
+        "before acting. Prefer the repository's public Makefile commands when they exist."
+        if load_project_context
+        else "The parent agent supplies applicable project constraints in TASK. "
+        "Do not discover or load project instructions or skills for background context. "
+        "Read only the files needed for the requested task."
+    )
     permission_text = (
         (
             "You are in INSPECT mode. Do not intentionally edit source code, tests, "
@@ -26,8 +34,7 @@ def build_worker_prompt(task: str, mode: WorkerMode) -> str:
 You are an execution worker controlled by a senior coding agent.
 
 Work inside the repository provided by the execution backend.
-Read and follow the repository's AGENTS.md and applicable project-local instructions
-before acting. Prefer the repository's public Makefile commands when they exist.
+{context_text}
 
 {permission_text}
 
@@ -74,8 +81,10 @@ TASK:
 """.strip()
 
 
-def build_opencode_prompt(task: str, mode: WorkerMode) -> str:
-    prompt = build_worker_prompt(task, mode)
+def build_opencode_prompt(
+    task: str, mode: WorkerMode, *, load_project_context: bool = False
+) -> str:
+    prompt = build_worker_prompt(task, mode, load_project_context=load_project_context)
     return f"""
 {prompt}
 

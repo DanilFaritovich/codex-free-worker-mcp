@@ -31,12 +31,16 @@ ordinary approval mechanism for any required protected operation, then perform o
 the explicitly approved narrow action and revalidate. Never automatically retry with
 elevated privileges, inherit broad access, or treat a worker's request as approval.
 If approval is unavailable or denied, stop and report the blocker.
+Project instructions and skills are omitted by default. Supply applicable constraints
+in the task, or set load_project_context=true when repository context is needed.
 """.strip()
 
 server = MCPServer("codex-free-worker", instructions=SERVER_INSTRUCTIONS)
 
 
-def _run_task(task: str, cwd: str, mode: WorkerMode) -> WorkerResult:
+def _run_task(
+    task: str, cwd: str, mode: WorkerMode, load_project_context: bool = False
+) -> WorkerResult:
     request_id = uuid4().hex
     with bind_request_id(request_id):
         started = perf_counter()
@@ -49,7 +53,9 @@ def _run_task(task: str, cwd: str, mode: WorkerMode) -> WorkerResult:
                 extra={"event": "worker_started", "backend": backend, "mode": mode.value},
             )
             service = build_worker_service(settings)
-            request = WorkerRequest(task=task, cwd=Path(cwd), mode=mode)
+            request = WorkerRequest(
+                task=task, cwd=Path(cwd), mode=mode, load_project_context=load_project_context
+            )
             result = service.execute(request)
             logger.log(
                 logging.WARNING
@@ -97,7 +103,7 @@ def _run_task(task: str, cwd: str, mode: WorkerMode) -> WorkerResult:
 
 
 @server.tool()
-def inspect_task(task: str, cwd: str) -> WorkerResult:
+def inspect_task(task: str, cwd: str, load_project_context: bool = False) -> WorkerResult:
     """Inspect a bounded high-output repository task without modifying files.
 
     Use this for validation, log diagnosis, CI/build inspection, or broad routine
@@ -105,13 +111,15 @@ def inspect_task(task: str, cwd: str) -> WorkerResult:
     Prefer direct Codex execution for tiny deterministic commands. Do not delegate
     architecture, security, persistence, migration, concurrency, deployment design,
     public contracts, ambiguous decisions, or final acceptance.
+    Set load_project_context=true to load repository instructions and skills;
+    otherwise include the applicable project constraints in task.
     """
 
-    return _run_task(task, cwd, WorkerMode.INSPECT)
+    return _run_task(task, cwd, WorkerMode.INSPECT, load_project_context)
 
 
 @server.tool()
-def fix_task(task: str, cwd: str) -> WorkerResult:
+def fix_task(task: str, cwd: str, load_project_context: bool = False) -> WorkerResult:
     """Repair bounded mechanical repository failures and validate the result.
 
     Use this for formatter/lint/type/test/build failures and repetitive local fixes where
@@ -119,9 +127,11 @@ def fix_task(task: str, cwd: str) -> WorkerResult:
     never owns Git delivery. Stop and return control to the primary model when a design,
     security, persistence, migration, concurrency, deployment, or public-contract
     decision is required.
+    Set load_project_context=true to load repository instructions and skills;
+    otherwise include the applicable project constraints in task.
     """
 
-    return _run_task(task, cwd, WorkerMode.FIX)
+    return _run_task(task, cwd, WorkerMode.FIX, load_project_context)
 
 
 def main() -> None:

@@ -15,16 +15,22 @@ class FakeExecutor:
         return WorkerResult(status=WorkerStatus.PASSED, summary="ok")
 
 
-def test_service_resolves_and_forwards_allowed_cwd(tmp_path: Path) -> None:
+@pytest.mark.parametrize("load_context", [False, True])
+def test_service_resolves_and_forwards_allowed_cwd(tmp_path: Path, load_context: bool) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     executor = FakeExecutor()
     service = WorkerService(executor=executor, allowed_roots=(tmp_path,))
 
-    result = service.execute(WorkerRequest(task="Inspect.", cwd=repo, mode=WorkerMode.INSPECT))
+    result = service.execute(
+        WorkerRequest(
+            task="Inspect.", cwd=repo, mode=WorkerMode.INSPECT, load_project_context=load_context
+        )
+    )
 
     assert result.status is WorkerStatus.PASSED
     assert executor.requests[0].cwd == repo.resolve()
+    assert executor.requests[0].load_project_context is load_context
 
 
 def test_service_rejects_cwd_outside_allowed_roots(tmp_path: Path) -> None:

@@ -18,12 +18,12 @@ from codex_free_worker.adapters.opencode import (
 from codex_free_worker.contracts import WorkerMode, WorkerRequest, WorkerStatus
 from codex_free_worker.errors import InvalidWorkerReport, WorkerExecutionError
 
-_REAL_PROVIDER_CONFIG = OpenCodeAdapter._repair_provider_config
+_REAL_ISOLATED_CONFIG = OpenCodeAdapter._isolated_config
 
 
 @pytest.fixture(autouse=True)
-def isolate_provider_config() -> Iterator[None]:
-    with patch.object(OpenCodeAdapter, "_repair_provider_config", return_value={}):
+def isolate_isolated_config() -> Iterator[None]:
+    with patch.object(OpenCodeAdapter, "_isolated_config", return_value={"provider": {}}):
         yield
 
 
@@ -167,6 +167,107 @@ def test_adapter_uses_model_directory_and_streaming_pipe(tmp_path: Path) -> None
     assert kwargs["stdout"] is subprocess.PIPE
     assert kwargs["stderr"] is subprocess.DEVNULL
     assert result.status is WorkerStatus.PASSED
+
+
+@pytest.mark.parametrize("mode", list(WorkerMode))
+@pytest.mark.parametrize("load_context", [False, True])
+def test_task_context_is_isolated_unless_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: WorkerMode, load_context: bool
+) -> None:
+    original_config = '{"mcp":{"unrelated":{}},"instructions":["EXTRA.md"]}'
+    monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", original_config)
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", "/parent/config")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/parent/xdg")
+    project_bin = tmp_path / ".venv" / "bin"
+    project_bin.mkdir(parents=True)
+    provider = {"provider": {"options": {"baseURL": "http://localhost:1234/v1"}}}
+    isolated_paths: list[Path] = []
+
+    def popen(command: list[str], **kwargs: object) -> _FakeProcess:
+        from typing import cast
+
+        env = cast(dict[str, str], kwargs["env"])
+        assert kwargs["cwd"] == tmp_path
+        assert env["PATH"].startswith(str(project_bin))
+        if load_context:
+            assert "--pure" not in command
+            assert env["OPENCODE_CONFIG_CONTENT"] == original_config
+            assert env["XDG_CONFIG_HOME"] == "/parent/xdg"
+            assert "Read and follow the repository's AGENTS.md" in command[-1]
+        else:
+            assert "--pure" in command
+            assert env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "true"
+            assert env["OPENCODE_DISABLE_EXTERNAL_SKILLS"] == "true"
+            assert env["OPENCODE_DISABLE_CLAUDE_CODE"] == "true"
+            config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+            assert config == {
+                "provider": provider,
+                "permission": {"bash": {"sudo *": "deny"}, "skill": "deny"},
+                "tools": {"skill": False},
+            }
+            config_path = Path(env["OPENCODE_CONFIG"])
+            assert json.loads(config_path.read_text()) == config
+            assert env["XDG_CONFIG_HOME"] == str(config_path.parent)
+            assert env["OPENCODE_CONFIG_DIR"] == str(config_path.parent)
+            isolated_paths.append(config_path)
+            assert "Read and follow the repository's AGENTS.md" not in command[-1]
+        return _FakeProcess(_event(_passed_payload()))
+
+    with (
+        patch.object(
+            OpenCodeAdapter,
+            "_isolated_config",
+            return_value={"provider": provider, "permission": {"bash": {"sudo *": "deny"}}},
+        ) as get_provider,
+        patch("codex_free_worker.adapters.opencode.subprocess.Popen", side_effect=popen) as run,
+    ):
+        result = _adapter().execute(
+            WorkerRequest(
+                task="Inspect src/example.py.",
+                cwd=tmp_path,
+                mode=mode,
+                load_project_context=load_context,
+            )
+        )
+    assert result.status is WorkerStatus.PASSED
+    assert run.call_count == 1
+    assert get_provider.call_count == (0 if load_context else 1)
+    assert all(not path.exists() for path in isolated_paths)
+    assert os.environ["OPENCODE_CONFIG_CONTENT"] == original_config
+    assert os.environ["XDG_CONFIG_HOME"] == "/parent/xdg"
+
+
+def test_provider_discovery_time_counts_toward_task_deadline(tmp_path: Path) -> None:
+    from unittest.mock import Mock
+
+    process = _FakeProcess(_event(_passed_payload()))
+    wait = Mock(return_value=0)
+    process.wait = wait  # type: ignore[method-assign]
+    with (
+        patch("codex_free_worker.adapters.opencode.time.monotonic", side_effect=[0.0, 5.0]),
+        patch(
+            "codex_free_worker.adapters.opencode.subprocess.Popen",
+            return_value=process,
+        ),
+    ):
+        _adapter().execute(WorkerRequest(task="Inspect", cwd=tmp_path, mode=WorkerMode.INSPECT))
+    wait.assert_called_once_with(timeout=95.0)
+
+
+@pytest.mark.parametrize("permission", ["allow", "deny", "ask"])
+def test_minimal_context_preserves_blanket_permissions(tmp_path: Path, permission: str) -> None:
+    with (
+        patch.object(
+            OpenCodeAdapter,
+            "_isolated_config",
+            return_value={"provider": {}, "permission": permission},
+        ),
+        _adapter()._task_environment(
+            WorkerRequest(task="Inspect", cwd=tmp_path, mode=WorkerMode.INSPECT)
+        ) as env,
+    ):
+        config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+        assert config["permission"] == {"*": permission, "skill": "deny"}
 
 
 def test_opencode_subprocess_inherits_target_project_tools(
@@ -335,7 +436,7 @@ def test_repair_uses_remaining_total_deadline_and_sixty_second_cap(
     with (
         patch(
             "codex_free_worker.adapters.opencode.time.monotonic",
-            side_effect=[0.0, elapsed, elapsed],
+            side_effect=[0.0, 0.0, elapsed, elapsed],
         ),
         patch(
             "codex_free_worker.adapters.opencode.subprocess.Popen",
@@ -349,7 +450,7 @@ def test_repair_uses_remaining_total_deadline_and_sixty_second_cap(
 
 def test_expired_deadline_does_not_start_repair(tmp_path: Path) -> None:
     with (
-        patch("codex_free_worker.adapters.opencode.time.monotonic", side_effect=[0.0, 101.0]),
+        patch("codex_free_worker.adapters.opencode.time.monotonic", side_effect=[0.0, 0.0, 101.0]),
         patch(
             "codex_free_worker.adapters.opencode.subprocess.Popen",
             return_value=_FakeProcess(_malformed_event()),
@@ -410,7 +511,7 @@ def test_validation_diagnostic_never_exposes_unknown_keys_or_values() -> None:
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_repair_provider_config_preserves_only_selected_provider(
+def test_isolated_config_preserves_only_selected_provider(
     tmp_path: Path,
     failed: bool,
 ) -> None:
@@ -434,22 +535,23 @@ def test_repair_provider_config_preserves_only_selected_provider(
         # Fetch the unpatched implementation stored before fixtures run.
         if failed:
             with pytest.raises(WorkerExecutionError, match="Could not inspect"):
-                _REAL_PROVIDER_CONFIG(
+                _REAL_ISOLATED_CONFIG(
                     adapter,
                     WorkerRequest(task="Inspect", cwd=tmp_path, mode=WorkerMode.INSPECT),
                     5.0,
                 )
         else:
-            assert _REAL_PROVIDER_CONFIG(
+            assert _REAL_ISOLATED_CONFIG(
                 adapter, WorkerRequest(task="Inspect", cwd=tmp_path, mode=WorkerMode.INSPECT), 5.0
-            ) == {"provider": provider}
+            ) == {"provider": {"provider": provider}, "permission": {"*": "allow"}}
     assert run.call_args.kwargs["cwd"] == tmp_path
     assert run.call_args.kwargs["timeout"] == 5.0
     assert run.call_args.kwargs["stderr"] is subprocess.DEVNULL
     assert run.call_args.args[0][-3:] == ["--pure", "debug", "config"]
+    assert run.call_args.kwargs["env"]["OPENCODE_DISABLE_PROJECT_CONFIG"] == "true"
 
 
-def test_provider_config_timeout_fails_without_exposing_config(tmp_path: Path) -> None:
+def test_isolated_config_timeout_fails_without_exposing_config(tmp_path: Path) -> None:
     with (
         patch(
             "codex_free_worker.adapters.opencode.subprocess.run",
@@ -457,7 +559,7 @@ def test_provider_config_timeout_fails_without_exposing_config(tmp_path: Path) -
         ),
         pytest.raises(WorkerExecutionError, match="Could not inspect") as error,
     ):
-        _REAL_PROVIDER_CONFIG(
+        _REAL_ISOLATED_CONFIG(
             _adapter(),
             WorkerRequest(task="Inspect", cwd=tmp_path, mode=WorkerMode.INSPECT),
             1.0,

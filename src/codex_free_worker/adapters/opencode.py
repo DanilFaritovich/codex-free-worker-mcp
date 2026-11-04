@@ -8,7 +8,8 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -191,13 +192,22 @@ class OpenCodeAdapter:
     def execute(self, request: WorkerRequest) -> WorkerResult:
         deadline = time.monotonic() + self._timeout_seconds
         try:
-            return self._run(
-                build_opencode_prompt(request.task, request.mode),
-                cwd=request.cwd,
-                env=build_project_env(request.cwd),
-                timeout_seconds=self._timeout_seconds,
-                repair=False,
-            )
+            with self._task_environment(request) as env:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WorkerExecutionError("No worker time remains for task execution.")
+                return self._run(
+                    build_opencode_prompt(
+                        request.task,
+                        request.mode,
+                        load_project_context=request.load_project_context,
+                    ),
+                    cwd=request.cwd,
+                    env=env,
+                    timeout_seconds=remaining,
+                    repair=False,
+                    load_project_context=request.load_project_context,
+                )
         except InvalidWorkerReport as exc:
             if not self._report_retries or not exc.repairable:
                 raise
@@ -216,7 +226,9 @@ class OpenCodeAdapter:
                     # Isolate project/global config, custom agents, tools and MCP servers.
                     # Provider authentication remains in the normal data directory.
                     config = {
-                        "provider": self._repair_provider_config(request, min(10.0, remaining)),
+                        "provider": self._isolated_config(request, min(10.0, remaining))[
+                            "provider"
+                        ],
                         "permission": {"*": "deny"},
                         "agent": {
                             "report-formatter": {
@@ -236,6 +248,8 @@ class OpenCodeAdapter:
                             "OPENCODE_CONFIG": str(config_path),
                             "OPENCODE_CONFIG_CONTENT": json.dumps(config),
                             "OPENCODE_DISABLE_PROJECT_CONFIG": "true",
+                            "OPENCODE_DISABLE_EXTERNAL_SKILLS": "true",
+                            "OPENCODE_DISABLE_CLAUDE_CODE": "true",
                         }
                     )
                     remaining = repair_deadline - time.monotonic()
@@ -263,15 +277,49 @@ class OpenCodeAdapter:
             )
             return result
 
-    def _repair_provider_config(
-        self, request: WorkerRequest, timeout_seconds: float
-    ) -> dict[str, object]:
-        """Carry only the selected provider into the isolated formatter config."""
+    @contextmanager
+    def _task_environment(self, request: WorkerRequest) -> Iterator[dict[str, str]]:
+        env = build_project_env(request.cwd)
+        if request.load_project_context:
+            yield env
+            return
+
+        # Keep provider connectivity, but omit global/project instructions, skills,
+        # custom agents, plugins and MCP servers from this child process.
+        config = self._isolated_config(request, min(10.0, self._timeout_seconds))
+        permission = config.get("permission", {})
+        # Context reduction must not relax existing command/file permission rules.
+        permissions = dict(permission) if isinstance(permission, dict) else {"*": permission}
+        permissions["skill"] = "deny"
+        config.update({"permission": permissions, "tools": {"skill": False}})
+        with tempfile.TemporaryDirectory(prefix="worker-context-") as temp_dir:
+            config_path = Path(temp_dir) / "opencode.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            env.update(
+                {
+                    "XDG_CONFIG_HOME": temp_dir,
+                    "OPENCODE_CONFIG_DIR": temp_dir,
+                    "OPENCODE_CONFIG": str(config_path),
+                    "OPENCODE_CONFIG_CONTENT": json.dumps(config),
+                    "OPENCODE_DISABLE_PROJECT_CONFIG": "true",
+                    "OPENCODE_DISABLE_EXTERNAL_SKILLS": "true",
+                    "OPENCODE_DISABLE_CLAUDE_CODE": "true",
+                }
+            )
+            yield env
+
+    def _isolated_config(self, request: WorkerRequest, timeout_seconds: float) -> dict[str, object]:
+        """Keep the selected provider and permissions, without ambient context."""
+        env = build_project_env(request.cwd)
+        if not request.load_project_context:
+            env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "true"
+            env["OPENCODE_DISABLE_EXTERNAL_SKILLS"] = "true"
+            env["OPENCODE_DISABLE_CLAUDE_CODE"] = "true"
         try:
             completed = subprocess.run(
                 [resolve_backend_binary(self._opencode_bin), "--pure", "debug", "config"],
                 cwd=request.cwd,
-                env=build_project_env(request.cwd),
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -292,9 +340,15 @@ class OpenCodeAdapter:
             selected = providers.get(provider_id)
             if selected is not None and not isinstance(selected, dict):
                 raise ValueError("Invalid provider shape")
+            permission = resolved.get("permission", {})
+            if not isinstance(permission, (dict, str)):
+                raise ValueError("Invalid permission shape")
         except ValueError, AttributeError:
             raise WorkerExecutionError("Invalid OpenCode provider configuration.") from None
-        return {provider_id: selected} if selected is not None else {}
+        return {
+            "provider": {provider_id: selected} if selected is not None else {},
+            "permission": permission,
+        }
 
     def _run(
         self,
@@ -304,11 +358,13 @@ class OpenCodeAdapter:
         env: dict[str, str],
         timeout_seconds: float,
         repair: bool,
+        load_project_context: bool = False,
     ) -> WorkerResult:
         command = [
             resolve_backend_binary(self._opencode_bin),
             "run",
-            *(["--pure", "--agent", "report-formatter"] if repair else ["--auto"]),
+            *(["--pure"] if repair or not load_project_context else []),
+            *(["--agent", "report-formatter"] if repair else ["--auto"]),
             "--dir",
             str(cwd),
             "--model",

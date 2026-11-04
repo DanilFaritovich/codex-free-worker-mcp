@@ -24,6 +24,17 @@ def test_worker_request_strips_task() -> None:
     )
 
     assert request.task == "Run make check."
+    assert request.load_project_context is False
+
+
+def test_worker_request_can_opt_into_project_context() -> None:
+    request = WorkerRequest(
+        task="Inspect.",
+        cwd=Path("/tmp/repo"),
+        mode=WorkerMode.INSPECT,
+        load_project_context=True,
+    )
+    assert request.load_project_context is True
 
 
 def test_worker_request_rejects_empty_task() -> None:

@@ -1,5 +1,22 @@
+import pytest
+
 from codex_free_worker.contracts import WorkerMode
 from codex_free_worker.prompt import build_opencode_prompt, build_worker_prompt
+
+
+@pytest.mark.parametrize("mode", list(WorkerMode))
+@pytest.mark.parametrize("opencode", [False, True])
+def test_project_context_is_opt_in(mode: WorkerMode, opencode: bool) -> None:
+    build = build_opencode_prompt if opencode else build_worker_prompt
+    minimal = build("Inspect src/example.py.", mode)
+    contextual = build("Inspect src/example.py.", mode, load_project_context=True)
+
+    assert "Read and follow the repository's AGENTS.md" not in minimal
+    assert "parent agent supplies applicable project constraints" in minimal
+    assert "Read only the files needed" in minimal
+    assert "Read and follow the repository's AGENTS.md" in contextual
+    assert "Inspect src/example.py." in minimal
+    assert "Inspect src/example.py." in contextual
 
 
 def test_inspect_prompt_forbids_source_edits_but_allows_disposable_caches() -> None:

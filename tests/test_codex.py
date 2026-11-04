@@ -68,6 +68,35 @@ def _adapter(
     )
 
 
+@pytest.mark.parametrize("mode", list(WorkerMode))
+@pytest.mark.parametrize("load_context", [False, True])
+def test_codex_context_loading_is_opt_in(
+    tmp_path: Path, mode: WorkerMode, load_context: bool
+) -> None:
+    with patch(
+        "codex_free_worker.adapters.codex.subprocess.Popen",
+        return_value=_FakeProcess(_payload()),
+    ) as popen:
+        _adapter().execute(
+            WorkerRequest(
+                task="Inspect src/example.py.",
+                cwd=tmp_path,
+                mode=mode,
+                load_project_context=load_context,
+            )
+        )
+    command = popen.call_args.args[0]
+    for setting in (
+        "project_doc_max_bytes=0",
+        "skills.include_instructions=false",
+        "skills.bundled.enabled=false",
+    ):
+        assert (setting in command) is (not load_context)
+    assert ("Read and follow the repository's AGENTS.md" in command[-1]) is load_context
+    assert "--ignore-user-config" in command
+    assert 'approval_policy="never"' in command
+
+
 @pytest.mark.parametrize(
     ("mode", "inspect_sandbox", "fix_sandbox", "expected_sandbox"),
     [

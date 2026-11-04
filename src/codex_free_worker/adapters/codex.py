@@ -54,7 +54,9 @@ class CodexAdapter:
         network_enabled = (
             self._inspect_network if request.mode is WorkerMode.INSPECT else self._fix_network
         )
-        prompt = build_worker_prompt(request.task, request.mode)
+        prompt = build_worker_prompt(
+            request.task, request.mode, load_project_context=request.load_project_context
+        )
 
         with tempfile.TemporaryDirectory(prefix="codex-worker-") as temp_dir:
             schema_path = Path(temp_dir) / "worker-result.schema.json"
@@ -83,6 +85,17 @@ class CodexAdapter:
                 "--config",
                 'approval_policy="never"',
             ]
+            if not request.load_project_context:
+                command.extend(
+                    [
+                        "--config",
+                        "project_doc_max_bytes=0",
+                        "--config",
+                        "skills.include_instructions=false",
+                        "--config",
+                        "skills.bundled.enabled=false",
+                    ]
+                )
             if network_enabled and sandbox_mode is SandboxMode.WORKSPACE_WRITE:
                 command.extend(
                     [

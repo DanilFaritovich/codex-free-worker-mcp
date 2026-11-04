@@ -61,6 +61,7 @@ class WorkerRequest(BaseModel):
     task: str = Field(min_length=1)
     cwd: Path
     mode: WorkerMode
+    load_project_context: bool = False
 
     @field_validator("task")
     @classmethod
